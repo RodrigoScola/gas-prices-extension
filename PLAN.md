@@ -46,7 +46,6 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 | Fuel surcharge from the "Siemens FTL Fuel Surcharge Scale 2026" PDF, turned into a formula | `lib/fuel.js` | Done |
 | Weekly diesel price from EIA's public weekly page (series `EMD_EPD2D_PTE_NUS_DPG`, no key), with the Wednesday rule; can be typed in by hand | `lib/fuel.js` | Done |
 | Lane miles: US Census geocoder for the street address (OpenStreetMap Nominatim for city/zip only), then OSRM driving distance, all free with no keys; saved per lane | `lib/miles.js` | Done. Car routes, not truck routes |
-| Fuel on minimum-charge lanes: off by default, with a toggle | `sidepanel/` | Done. Waiting on Aidan |
 | Accessorials from "FY 2025 Siemens FTL Accessorial Schedule", auto-ticked for weekend, holiday, after-hours and hazmat | `lib/accessorials.js` | Done |
 | Sidebar UI with every field editable, so the broker can fix anything the parser got wrong | `sidepanel/` | Done |
 | Tests | `test/run.mjs` | 13 passing, including tests against the real sheets and both real emails |
@@ -56,14 +55,14 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 - **Lane:** the most specific match wins: city→city, then city→state, then state→city, then state→state. The sheet has all four kinds.
 - **Linehaul:** `max(min charge, miles × rate per mile)`. If a lane only has a minimum, the minimum is used.
 - **Temporary surcharge:** linehaul × the % from the accepted surcharge sheet (most specific entry wins).
-- **Fuel:** miles × the surcharge per mile from the scale (not charged on minimum-charge lanes unless the toggle is on). That's $0.01 at $1.150–$1.199 diesel, +$0.01 for every $0.05 above that, capped at $1.28 from $7.50 up. The scale says it adjusts every Wednesday from the prior Monday's DOE price.
+- **Fuel:** miles × the surcharge per mile from the scale, including on minimum-charge lanes. That's $0.01 at $1.150–$1.199 diesel, +$0.01 for every $0.05 above that, capped at $1.28 from $7.50 up. The scale says it adjusts every Wednesday from the prior Monday's DOE price.
 - **Accessorials:** the ticked items. Team driver is $100, or $0.10/mile over 1,000 miles.
 
 ### Checked so far
 
 - `node test/run.mjs`: 13 tests pass, including the real rate and surcharge sheets.
 - I loaded the extension into a separate test Chrome profile (Chrome 156, using `Extensions.loadUnpacked` over DevTools) and drove the panel against the live APIs on 2026-10-23. Diesel came back as $6.276 for the week of 10/19, which gives a $1.03/mile fuel surcharge.
-  - Real email 1 (3011526620-23K, MEI, Fort Worth) is 20 miles. It's billed at the $500 minimum plus the 10% temporary surcharge, for **$550**. With fuel on minimum lanes turned on, it's $570.60.
+  - Real email 1 (3011526620-23K, MEI, Fort Worth) is 20 miles. It's billed at the $500 minimum plus the 10% temporary surcharge plus $20.60 fuel, for **$570.60**.
   - Real email 2 (3010759748-41K/42K/43K/44K, RDI, Itasca IL) is 934 miles. That's $1,335.62 linehaul + $267.12 (20% temporary surcharge) + $962.02 fuel, for **$2,564.76**.
   - The sheets, the diesel price and the miles survive a reload.
 
@@ -87,11 +86,12 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 - Pickup is always the sender's Grand Prairie address, and the address block in the email is the delivery.
 - The $ amount in the email is the value of the goods.
 - Miles and diesel come from free public APIs.
+- Fuel applies on minimum-charge lanes too (Aidan).
+- The client bills on truck miles (Aidan).
 
 ## Open questions
 
-1. **Fuel on minimum-charge lanes:** does the fuel surcharge apply when a lane is billed at its minimum? It's off by default with a toggle (ask Aidan or the client).
-2. **Car vs truck miles:** are OSRM car-route miles close enough, or does the client bill on PC*Miler miles?
-3. **Equipment words:** I read "Van Load…" in the subject as dry van. What do flatbed, step deck and reefer subjects say?
-4. **Rate sheet:** is "Siemens FTL Final Bid 2026" (3,197 lanes) the 3,100-row sheet? Should the Landstar specialized sheet be used too?
-5. **More samples:** a handful more real emails would make the parser much more reliable.
+1. **Truck miles:** OSRM gives car routes. Keyless options are car-only. OpenRouteService has a free truck (HGV) profile but needs a free key. PC*Miler is paid.
+2. **Equipment words:** I read "Van Load…" in the subject as dry van. What do flatbed, step deck and reefer subjects say?
+3. **Rate sheet:** is "Siemens FTL Final Bid 2026" (3,197 lanes) the 3,100-row sheet? Should the Landstar specialized sheet be used too?
+4. **More samples:** a handful more real emails would make the parser much more reliable.

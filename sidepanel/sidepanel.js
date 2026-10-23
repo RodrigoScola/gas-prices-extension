@@ -14,7 +14,6 @@ const state = {
   rateSheet: null, // { equipmentTypes, lanes, fileName, loadedAt }
   tempSurcharges: null, // { list, fileName }
   fuel: null, // { price, week, source }
-  fuelOnMinimum: false,
   milesCache: {}, // "from|to" -> { miles, precision }
   details: null,
   checked: new Set(),
@@ -189,12 +188,6 @@ $("tempFile").addEventListener("change", async (e) => {
 
 // ---------- step 3: fuel ----------
 
-$("fuelOnMinimum").addEventListener("change", async () => {
-  state.fuelOnMinimum = $("fuelOnMinimum").checked;
-  await store.set({ fuelOnMinimum: state.fuelOnMinimum });
-  render();
-});
-
 async function refreshDiesel() {
   setStatus($("fuelResult"), "Getting this week's diesel price from EIA…");
   try {
@@ -269,7 +262,6 @@ function render() {
   setStatus($("tempStatus"), state.tempSurcharges
     ? `${state.tempSurcharges.fileName}: ${state.tempSurcharges.list.length} surcharges.`
     : "Not loaded. Quotes will leave out temporary surcharges.", state.tempSurcharges ? "muted" : "muted warn");
-  $("fuelOnMinimum").checked = state.fuelOnMinimum;
 
   const miles = Number($("miles").value) || null;
   const origin = parsePlace($("origin").value);
@@ -322,9 +314,8 @@ function render() {
       `Diesel ${money(diesel)}/gal → ${money(perMile)}/mile surcharge. ` +
       (state.fuel ? `Source: ${state.fuel.source}, week of ${state.fuel.week}.` : "") +
       (stale ? " This is over a week old." : ""), stale ? "muted warn" : "muted");
-    if (lh?.basis === "minimum charge" && !state.fuelOnMinimum) {
-      notes.push("No fuel charged: this lane is billed at its minimum (see the fuel setting above).");
-    } else if (miles) {
+    // Fuel applies on minimum-charge lanes too (confirmed with Aidan, 2026-10-23).
+    if (miles) {
       lines.push([`Fuel (${miles} mi × ${money(perMile)})`, money(perMile * miles)]);
       total += perMile * miles;
     } else notes.push("Fuel surcharge needs miles.");
@@ -349,12 +340,11 @@ function render() {
 
 // ---------- start ----------
 
-const saved = await store.get(["rateSheet", "tempSurcharges", "fuel", "fuelOnMinimum", "milesCache"]);
+const saved = await store.get(["rateSheet", "tempSurcharges", "fuel", "milesCache"]);
 Object.assign(state, {
   rateSheet: saved.rateSheet || null,
   tempSurcharges: saved.tempSurcharges || null,
   fuel: saved.fuel || null,
-  fuelOnMinimum: !!saved.fuelOnMinimum,
   milesCache: saved.milesCache || {},
 });
 fillEquipment();
