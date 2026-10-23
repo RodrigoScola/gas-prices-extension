@@ -1,0 +1,27 @@
+# Gas Prices Quote Sidebar
+
+Chrome extension (Manifest V3, `chrome.sidePanel`). It reads a shipping email as plain text, finds the lane rate in the Siemens bid sheet, and adds the temporary surcharge, the weekly fuel surcharge and accessorials. See [PLAN.md](PLAN.md) for the full plan and open questions.
+
+## Install in Chrome
+
+1. Open `chrome://extensions` and turn on **Developer mode** (top right).
+2. Click **Load unpacked** and pick this folder.
+3. Pin the extension and click its icon to open the sidebar.
+4. Under **Data & settings**, load `Siemens FTL Final Bid 2026.xlsx` and `Siemens Accepted Surcharge.xlsx`. They're kept until you load new ones.
+5. Optional: paste a free EIA API key (https://www.eia.gov/opendata/register.php) so the diesel price fills in by itself. Otherwise type it in.
+
+## Use it
+
+- Open an email and click **Read open email**, or
+- select the email text, right-click, and pick **Quote this shipment**, or
+- paste the text into the box.
+
+Every field can be edited, and the quote updates as you type.
+
+## Tests
+
+```bash
+node test/run.mjs
+```
+
+Tests against the real sheets run when they're in `private/`. That folder is git-ignored so client data stays out of the repo.

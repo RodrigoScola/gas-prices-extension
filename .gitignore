@@ -1,0 +1,6 @@
+private/
+*.xlsx
+*.xls
+*.pdf
+node_modules/
+.chrome-test-profile/

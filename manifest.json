@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Gas Prices Quote Sidebar",
+  "version": "0.1.0",
+  "description": "Reads a shipping email as text, looks up the lane rate, and adds the weekly fuel surcharge and accessorials.",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel", "storage", "activeTab", "scripting", "contextMenus"],
+  "host_permissions": [
+    "https://mail.google.com/*",
+    "https://outlook.office.com/*",
+    "https://outlook.office365.com/*",
+    "https://outlook.live.com/*",
+    "https://api.eia.gov/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open the quote sidebar"
+  }
+}
