@@ -3,7 +3,7 @@
 // mail.google.com are answered with a mock Gmail page, so no account is needed. Miles and
 // diesel come from the live public services, so this needs internet.
 //
-//   npm run test:e2e            (set CHROME=path/to/chrome to pick a browser)
+//   npm run test:e2e            (builds dist/ first; set CHROME=path/to/chrome to pick a browser)
 //
 // Needs the real emails and sheets in private/. Screenshots go to test/e2e/screenshots/.
 import { spawn } from "node:child_process";
@@ -13,7 +13,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 
-const extDir = fileURLToPath(new URL("../../", import.meta.url));
+const repo = fileURLToPath(new URL("../../", import.meta.url));
+const extDir = path.join(repo, "dist"); // the built extension (npm run build)
 const outDir = fileURLToPath(new URL("./screenshots/", import.meta.url));
 const chrome = process.env.CHROME || [
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
@@ -23,7 +24,8 @@ const chrome = process.env.CHROME || [
   "/usr/bin/chromium",
 ].find(existsSync);
 if (!chrome) { console.log("SKIP: Chrome not found (set CHROME)."); process.exit(0); }
-if (!existsSync(path.join(extDir, "private", "email-real-2.txt"))) { console.log("SKIP: real emails not in private/."); process.exit(0); }
+if (!existsSync(path.join(extDir, "manifest.json"))) { console.log("Build first: npm run build"); process.exit(1); }
+if (!existsSync(path.join(repo, "private", "email-real-2.txt"))) { console.log("SKIP: real emails not in private/."); process.exit(0); }
 mkdirSync(outDir, { recursive: true });
 const profile = mkdtempSync(path.join(tmpdir(), "quote-e2e-"));
 
@@ -97,8 +99,8 @@ async function waitFor(fn, what, ms = 20000) {
 // ---------- mock Gmail ----------
 
 const emails = {
-  one: readFileSync(path.join(extDir, "private", "email-real-1.txt"), "utf8"),
-  two: readFileSync(path.join(extDir, "private", "email-real-2.txt"), "utf8"),
+  one: readFileSync(path.join(repo, "private", "email-real-1.txt"), "utf8"),
+  two: readFileSync(path.join(repo, "private", "email-real-2.txt"), "utf8"),
 };
 const subjects = { one: "Van Load for 10/14 READY NOW 3011526620-23K", two: "Van Load for 10/14 @ READY NOW 3010759748-41K/42K/43K/44K" };
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -112,29 +114,43 @@ try {
   const { id: extId } = await send("Extensions.loadUnpacked", { path: extDir });
   const base = `chrome-extension://${extId}`;
 
-  const panel = await open(`${base}/sidepanel/sidepanel.html`);
+  // Any uncaught error on a page fails the run.
+  const pageErrors = [];
+  listeners.push((msg) => {
+    if (msg.method === "Runtime.exceptionThrown") pageErrors.push(msg.params.exceptionDetails.exception?.description || msg.params.exceptionDetails.text);
+    if (msg.method === "Runtime.consoleAPICalled" && msg.params.type === "error") pageErrors.push(msg.params.args.map((a) => a.value ?? a.description).join(" "));
+  });
+
+  const panel = await open(`${base}/sidepanel/index.html`);
   const P = (e) => evalIn(panel.sessionId, e);
+  await waitFor(async () => P(`!!document.getElementById("captureNote")`).catch(() => false), "the sidebar to render");
+  if (pageErrors.length) console.log("page errors:\n  " + pageErrors.join("\n  "));
   const dump = () => P(`({
     capture: document.getElementById("captureNote").textContent,
     devToolsShown: !document.getElementById("devTools").hidden,
-    textBoxShown: !document.getElementById("email").hidden,
-    buttons: [...document.querySelectorAll("button")].filter(b => b.offsetParent).map(b => b.textContent),
+    textBoxShown: !!document.getElementById("email")?.offsetParent,
+    sampleShown: !!document.getElementById("loadSample")?.offsetParent,
+    settingsButton: !!document.getElementById("openSettings")?.offsetParent,
+    themeButton: document.querySelector("[data-mode]")?.dataset.mode,
+    background: getComputedStyle(document.body).backgroundColor,
     details: [...document.querySelectorAll("#details dt")].map(dt => dt.textContent + ": " + dt.nextElementSibling.textContent).join(" | "),
     miles: document.getElementById("miles").value,
     milesNote: document.getElementById("milesNote").textContent,
     lane: document.getElementById("laneResult").textContent,
     fuel: document.getElementById("fuelResult").textContent,
-    accessorials: [...document.querySelectorAll(".acc")].filter(r => r.querySelector("input").checked || r.querySelector(".hint")).map(r => r.textContent.replace(/\\s+/g, " ").trim()),
+    accessorials: [...document.querySelectorAll(".acc")].filter(r => r.querySelector("input").checked || r.dataset.reason).map(r => r.querySelector(".acc-label").textContent + " (" + r.dataset.reason + ")"),
     quote: [...document.querySelectorAll("#quoteDetails dt")].map(dt => dt.textContent + ": " + dt.nextElementSibling.textContent).join(" | "),
     problems: document.getElementById("problems").hidden ? [] : [...document.querySelectorAll("#problemList li")].map(li => li.textContent),
   })`);
 
   await waitFor(async () => /EIA weekly page/.test((await dump()).fuel), "diesel price");
   let s = await dump();
-  check("production: no sample, no paste box, only the settings button", () => {
+  check("production: no sample button or paste box; settings and theme buttons", () => {
     assert.equal(s.devToolsShown, false);
+    assert.equal(s.sampleShown, false);
     assert.equal(s.textBoxShown, false);
-    assert.deepEqual(s.buttons, ["Data & settings"]);
+    assert.equal(s.settingsButton, true);
+    assert.equal(s.themeButton, "system");
   });
   check("no email yet: says so", () => {
     assert.match(s.capture, /Open a shipping email in Gmail/);
@@ -209,14 +225,37 @@ try {
   await shot(panel.sessionId, "right-click.png");
 
   // Typing a lane with no match spells out the problem.
-  await P(`(() => { const d = document.getElementById("destination"); d.value = "Honolulu, HI"; d.dispatchEvent(new Event("input")); })()`);
-  await sleep(500);
+  // (React inputs need the native value setter for a typed value to register.)
+  await P(`(() => {
+    const d = document.getElementById("destination");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(d, "Honolulu, HI");
+    d.dispatchEvent(new Event("input", { bubbles: true }));
+  })()`);
+  await sleep(800);
   s = await dump();
   check("a lane that isn't in the sheet is named in the problems", () => assert.ok(s.problems.some((p) => /^Rate sheet: no lane for Laredo, TX → Honolulu, HI/.test(p)), s.problems.join(" / ")));
 
+  // Theme: system -> light -> dark, remembered for the settings page too.
+  await P(`document.querySelector("[data-mode]").click()`);
+  await sleep(300);
+  const lightBg = (await dump()).background;
+  await shot(panel.sessionId, "light.png");
+  await P(`document.querySelector("[data-mode]").click()`);
+  await sleep(400);
+  s = await dump();
+  check("theme button switches to dark mode", () => {
+    assert.equal(s.themeButton, "dark");
+    assert.notEqual(s.background, lightBg);
+    const [r, g, b] = s.background.match(/\d+/g).map(Number);
+    assert.ok(r + g + b < 120, `dark background, got ${s.background}`);
+  });
+  await shot(panel.sessionId, "dark.png");
+
   // Settings page.
-  const opts = await open(`${base}/options/options.html`);
-  await sleep(1500);
+  const opts = await open(`${base}/options/index.html`);
+  await sleep(2000);
+  const optsMode = await evalIn(opts.sessionId, `document.querySelector("[data-mode]").dataset.mode`);
+  check("settings page picks up the dark mode setting", () => assert.equal(optsMode, "dark"));
   const o = await evalIn(opts.sessionId, `[document.getElementById("rateSheetStatus").textContent, document.getElementById("tempSurchargesStatus").textContent, document.getElementById("rateSheetDefault").hidden, document.getElementById("tempSurchargesDefault").hidden]`);
   check("settings page: both sheets on their defaults", () => {
     assert.equal(o[0], "Default: Siemens FTL Final Bid 2026.xlsx, 3,197 lanes.");
@@ -225,6 +264,7 @@ try {
     assert.equal(o[3], true);
   });
   await shot(opts.sessionId, "settings.png");
+  check("no errors on any page", () => assert.deepEqual(pageErrors, []));
 } catch (err) {
   failures++;
   console.error("FAILED:", err.message);

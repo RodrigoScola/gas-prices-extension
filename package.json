@@ -2,7 +2,21 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch",
     "test": "node --test \"test/*.test.mjs\"",
-    "test:e2e": "node test/e2e/chrome.e2e.mjs"
+    "test:e2e": "vite build && node test/e2e/chrome.e2e.mjs"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^9.5.0",
+    "@mui/material": "^9.5.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.2",
+    "vite": "^8.3.5"
   }
 }

@@ -47,13 +47,13 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 | Weekly diesel price from EIA's public weekly page (series `EMD_EPD2D_PTE_NUS_DPG`, no key), with the Wednesday rule; can be typed in by hand | `lib/fuel.js` | Done |
 | Lane miles: US Census geocoder for the street address (OpenStreetMap Nominatim for city/zip only), then OSRM driving distance, all free with no keys; saved per lane | `lib/miles.js` | Done. Car routes, not truck routes |
 | Accessorials from "FY 2025 Siemens FTL Accessorial Schedule", auto-ticked for weekend, holiday, after-hours and hazmat | `lib/accessorials.js` | Done |
-| Sidebar UI with every field editable, so the broker can fix anything the parser got wrong | `sidepanel/` | Done |
+| Sidebar and settings page in React + MUI (Vite build to `dist/`), light / dark / system mode, every field editable | `src/` | Done |
 | Reads the open Gmail email by itself when the sidebar opens and whenever you switch tab or email; right-click works anywhere | `sidepanel/`, `lib/capture.js` | Done. Tested against a mock Gmail page, not a live inbox yet |
 | Rate and surcharge sheets as settings on the options page, with built-in defaults | `options/`, `lib/sheets.js` | Done |
 | Dev/production flag: the sample email and paste box only show in development | `config.js` | Done |
 | Quote problems spelled out: which part (email, pickup, delivery, rate sheet, miles, fuel) and what to do | `sidepanel/` | Done |
 | Accessorial auto-detection (see below) | `lib/accessorials.js` | Done |
-| Tests | `test/` | 188 unit tests (`npm test`) and 11 Chrome end-to-end checks (`npm run test:e2e`) |
+| Tests | `test/` | 190 unit tests (`npm test`) and 14 Chrome end-to-end checks (`npm run test:e2e`) |
 
 ### Quote math
 
@@ -83,8 +83,8 @@ Only ticked when the email or the lane shows it; everything else stays unticked 
 
 ### Checked so far
 
-- `npm test`: 188 unit tests pass, including the real rate and surcharge sheets, every row of the fuel PDF, and both real emails quoted start to finish.
-- `npm run test:e2e`: 11 checks pass in a throwaway Chrome profile with a mock Gmail page.
+- `npm test`: 190 unit tests pass, including the real rate and surcharge sheets, every row of the fuel PDF, and both real emails quoted start to finish.
+- `npm run test:e2e`: 14 checks pass in a throwaway Chrome profile with a mock Gmail page, including dark mode, the settings page and no page errors.
 - I loaded the extension into a separate test Chrome profile (Chrome 156, using `Extensions.loadUnpacked` over DevTools) and drove the panel against the live APIs on 2026-10-23. Diesel came back as $6.276 for the week of 10/19, which gives a $1.03/mile fuel surcharge.
   - Real email 1 (3011526620-23K, MEI, Fort Worth) is 20 miles. It's billed at the $500 minimum plus the 10% temporary surcharge plus $20.60 fuel, for **$570.60**.
   - Real email 2 (3010759748-41K/42K/43K/44K, RDI, Itasca IL) is 934 miles. That's $1,335.62 linehaul + $267.12 (20% temporary surcharge) + $962.02 fuel, for **$2,564.76**.
