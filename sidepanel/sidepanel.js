@@ -2,7 +2,8 @@ import { parseEmail } from "../lib/email.js";
 import { captureEmailText } from "../lib/capture.js";
 import { readFirstSheet } from "../lib/xlsx.js";
 import { parseRateSheet, findLane, matchEquipment, linehaul, parseTempSurcharges, findTempSurcharge } from "../lib/rates.js";
-import { fscPerMile, fetchDieselPrice, isStale } from "../lib/fuel.js";
+import { fscPerMile, fetchDieselPricePublic, isStale } from "../lib/fuel.js";
+import { laneMiles, addressText } from "../lib/miles.js";
 import { ACCESSORIALS, detectAccessorials, accessorialAmount } from "../lib/accessorials.js";
 
 const $ = (id) => document.getElementById(id);
@@ -12,8 +13,9 @@ const store = chrome.storage.local;
 const state = {
   rateSheet: null, // { equipmentTypes, lanes, fileName, loadedAt }
   tempSurcharges: null, // { list, fileName }
-  eiaKey: "",
   fuel: null, // { price, week, source }
+  fuelOnMinimum: false,
+  milesCache: {}, // "from|to" -> { miles, precision }
   details: null,
   checked: new Set(),
 };
@@ -50,8 +52,8 @@ function useEmail(text, source) {
   const d = state.details;
   $("origin").value = placeText(d.origin);
   $("destination").value = placeText(d.destination);
-  if (d.miles) $("miles").value = d.miles;
-  else $("miles").value = "";
+  $("miles").value = d.miles || "";
+  setStatus($("milesNote"), d.miles ? "From the email." : "");
   const types = state.rateSheet?.equipmentTypes || [];
   $("equipment").value = matchEquipment(types, d.equipment) || types[0] || "";
   state.checked = detectAccessorials(d);
@@ -60,7 +62,7 @@ function useEmail(text, source) {
   const fmtDT = (x) => x && [x.date?.toLocaleDateString(), x.minutes != null ? `${String(Math.floor(x.minutes / 60)).padStart(2, "0")}:${String(x.minutes % 60).padStart(2, "0")}` : null].filter(Boolean).join(" ");
   renderList($("details"), [
     ["Reference", d.reference],
-    ["Pickup", d.origin ? `${placeText(d.origin)} ${d.origin.zip || ""}${d.originGuessed ? " (from sender's signature)" : ""}` : null],
+    ["Pickup", d.origin ? `${placeText(d.origin)} ${d.origin.zip || ""}${d.originFromSignature ? " (sender's address)" : ""}` : null],
     ["Delivery", d.destination ? `${placeText(d.destination)} ${d.destination.zip || ""}` : null],
     ["Consignee", d.consignee ? [d.consignee.name, d.consignee.street].filter(Boolean).join(", ") : null],
     ["Contact", d.consignee?.contact ?? null],
@@ -74,7 +76,46 @@ function useEmail(text, source) {
     ["Sender", d.sender],
   ].filter(([label, value]) => value != null || ["Reference", "Pickup", "Delivery", "Weight"].includes(label)));
   render();
+  if (!d.miles) getMiles();
 }
+
+// ---------- miles ----------
+
+// Use the street from the email when the City, ST fields still match it; geocoding a street
+// is more precise than a city center.
+function laneEnds() {
+  const withStreet = (field, parsed) => {
+    const p = parsePlace($(field).value);
+    if (!p) return null;
+    return parsed && placeText(parsed).toLowerCase() === placeText(p).toLowerCase() ? { ...parsed } : p;
+  };
+  return [withStreet("origin", state.details?.origin), withStreet("destination", state.details?.destination)];
+}
+
+let milesRun = 0;
+async function getMiles() {
+  const [o, d] = laneEnds();
+  if (!o || !d) return;
+  const key = `${addressText(o)}|${addressText(d)}`.toLowerCase();
+  const run = ++milesRun;
+  const show = (r, cached) => {
+    $("miles").value = r.miles;
+    setStatus($("milesNote"), `Driving route from the ${r.precision}${cached ? " (saved)" : ""}.`);
+    render();
+  };
+  if (state.milesCache[key]) return show(state.milesCache[key], true);
+  setStatus($("milesNote"), "Working out the route…");
+  try {
+    const r = await laneMiles(o, d);
+    if (run !== milesRun) return; // a newer lookup started
+    state.milesCache[key] = r;
+    await store.set({ milesCache: state.milesCache });
+    show(r, false);
+  } catch (err) {
+    if (run === milesRun) setStatus($("milesNote"), `${err.message} Type the miles in.`, "muted warn");
+  }
+}
+$("getMiles").addEventListener("click", getMiles);
 
 $("readTab").addEventListener("click", async () => {
   try {
@@ -146,22 +187,18 @@ $("tempFile").addEventListener("change", async (e) => {
   }
 });
 
-$("saveKey").addEventListener("click", async () => {
-  state.eiaKey = $("eiaKey").value.trim();
-  await store.set({ eiaKey: state.eiaKey });
-  refreshDiesel();
-});
-
 // ---------- step 3: fuel ----------
 
+$("fuelOnMinimum").addEventListener("change", async () => {
+  state.fuelOnMinimum = $("fuelOnMinimum").checked;
+  await store.set({ fuelOnMinimum: state.fuelOnMinimum });
+  render();
+});
+
 async function refreshDiesel() {
-  if (!state.eiaKey) {
-    setStatus($("fuelResult"), "Add an EIA API key under Data & settings, or type this week's diesel price.", "muted warn");
-    return;
-  }
-  setStatus($("fuelResult"), "Getting the latest diesel price from EIA…");
+  setStatus($("fuelResult"), "Getting this week's diesel price from EIA…");
   try {
-    state.fuel = await fetchDieselPrice(state.eiaKey);
+    state.fuel = await fetchDieselPricePublic();
     await store.set({ fuel: state.fuel });
     $("diesel").value = state.fuel.price;
   } catch (err) {
@@ -222,6 +259,7 @@ function fillEquipment() {
 }
 
 for (const id of ["origin", "destination", "equipment", "miles"]) $(id).addEventListener("input", render);
+for (const id of ["origin", "destination"]) $(id).addEventListener("change", getMiles);
 
 function render() {
   const rs = state.rateSheet;
@@ -231,7 +269,7 @@ function render() {
   setStatus($("tempStatus"), state.tempSurcharges
     ? `${state.tempSurcharges.fileName}: ${state.tempSurcharges.list.length} surcharges.`
     : "Not loaded. Quotes will leave out temporary surcharges.", state.tempSurcharges ? "muted" : "muted warn");
-  $("eiaKey").value = state.eiaKey;
+  $("fuelOnMinimum").checked = state.fuelOnMinimum;
 
   const miles = Number($("miles").value) || null;
   const origin = parsePlace($("origin").value);
@@ -284,13 +322,15 @@ function render() {
       `Diesel ${money(diesel)}/gal → ${money(perMile)}/mile surcharge. ` +
       (state.fuel ? `Source: ${state.fuel.source}, week of ${state.fuel.week}.` : "") +
       (stale ? " This is over a week old." : ""), stale ? "muted warn" : "muted");
-    if (miles) {
+    if (lh?.basis === "minimum charge" && !state.fuelOnMinimum) {
+      notes.push("No fuel charged: this lane is billed at its minimum (see the fuel setting above).");
+    } else if (miles) {
       lines.push([`Fuel (${miles} mi × ${money(perMile)})`, money(perMile * miles)]);
       total += perMile * miles;
     } else notes.push("Fuel surcharge needs miles.");
   } else {
     complete = false;
-    if (!$("fuelResult").textContent) setStatus($("fuelResult"), "Enter this week's diesel price, or add an EIA key.", "muted warn");
+    if (!$("fuelResult").textContent) setStatus($("fuelResult"), "Click Get from EIA, or type this week's diesel price.", "muted warn");
   }
 
   // Accessorials
@@ -309,16 +349,24 @@ function render() {
 
 // ---------- start ----------
 
-const saved = await store.get(["rateSheet", "tempSurcharges", "eiaKey", "fuel"]);
+const saved = await store.get(["rateSheet", "tempSurcharges", "fuel", "fuelOnMinimum", "milesCache"]);
 Object.assign(state, {
   rateSheet: saved.rateSheet || null,
   tempSurcharges: saved.tempSurcharges || null,
-  eiaKey: saved.eiaKey || "",
   fuel: saved.fuel || null,
+  fuelOnMinimum: !!saved.fuelOnMinimum,
+  milesCache: saved.milesCache || {},
 });
 fillEquipment();
 if (state.fuel) $("diesel").value = state.fuel.price;
 if (!state.rateSheet) $("settings").hidden = false;
 render();
 takePending();
-if (state.eiaKey && isStale(state.fuel)) refreshDiesel();
+// A typed-in price stays until the next EIA week is out.
+if (!state.fuel || (state.fuel.source !== "typed in" && effectiveWeekPassed(state.fuel)) || isStale(state.fuel)) refreshDiesel();
+
+// True once a newer Monday price has taken effect (that Monday's Wednesday has passed).
+function effectiveWeekPassed(fuel) {
+  const [y, m, d] = fuel.week.split("-").map(Number);
+  return Date.now() >= new Date(y, m - 1, d + 9).getTime();
+}

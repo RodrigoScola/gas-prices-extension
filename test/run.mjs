@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { parseEmail, parseDateTime } from "../lib/email.js";
 import { readFirstSheet } from "../lib/xlsx.js";
 import { parseRateSheet, findLane, matchEquipment, linehaul, parseTempSurcharges, findTempSurcharge, equipmentKey } from "../lib/rates.js";
-import { fscPerMile, fetchDieselPrice, isStale } from "../lib/fuel.js";
+import { fscPerMile, parseEiaHistoryPage, effectivePrice, fetchDieselPricePublic, isStale } from "../lib/fuel.js";
+import { laneMiles, addressText } from "../lib/miles.js";
 import { detectAccessorials, isHoliday } from "../lib/accessorials.js";
 
 const file = (p) => new URL(p, import.meta.url);
@@ -17,9 +18,9 @@ const test = async (name, fn) => { await fn(); passed++; console.log("ok", name)
 await test("unlabeled email (real sample layout)", () => {
   const d = parseEmail(read("../sample/email-sample.txt"));
   assert.equal(d.reference, "3011500000-01A");
-  assert.deepEqual(d.destination, { city: "Fort Worth", state: "TX", zip: "76111" });
-  assert.deepEqual(d.origin, { city: "Grand Prairie", state: "TX", zip: "75050" });
-  assert.equal(d.originGuessed, true);
+  assert.deepEqual(d.destination, { city: "Fort Worth", state: "TX", zip: "76111", street: "1200 Example Industrial Blvd" });
+  assert.deepEqual(d.origin, { city: "Grand Prairie", state: "TX", zip: "75050", street: "501 Fountain Parkway" });
+  assert.equal(d.originFromSignature, true);
   assert.equal(d.consignee.name, "ACME ELECTRIC");
   assert.equal(d.consignee.street, "1200 Example Industrial Blvd");
   assert.equal(d.consignee.contact, "Jane Doe 555-010-0000");
@@ -43,8 +44,8 @@ if (existsSync(file("../private/email-real-1.txt"))) {
   await test("real email 1", () => {
     const d = parseEmail(read("../private/email-real-1.txt"));
     assert.equal(d.reference, "3011526620-23K");
-    assert.deepEqual(d.destination, { city: "Fort Worth", state: "TX", zip: "76111" });
-    assert.deepEqual(d.origin, { city: "Grand Prairie", state: "TX", zip: "75050" });
+    assert.deepEqual(d.destination, { city: "Fort Worth", state: "TX", zip: "76111", street: "2917 Chesser Boyer Rd" });
+    assert.deepEqual(d.origin, { city: "Grand Prairie", state: "TX", zip: "75050", street: "501 Fountain Parkway" });
     assert.equal(d.consignee.name, "MEI");
     assert.equal(d.value, 185690);
     assert.equal(d.weight, 3600);
@@ -56,8 +57,8 @@ if (existsSync(file("../private/email-real-2.txt"))) {
   await test("real email 2 (RDI, Itasca)", () => {
     const d = parseEmail(read("../private/email-real-2.txt"));
     assert.equal(d.reference, "3010759748-41K/42K/43K/44K");
-    assert.deepEqual(d.destination, { city: "Itasca", state: "IL", zip: "60143" });
-    assert.deepEqual(d.origin, { city: "Grand Prairie", state: "TX", zip: "75050" });
+    assert.deepEqual(d.destination, { city: "Itasca", state: "IL", zip: "60143", street: "1070 ARDMORE AVE" });
+    assert.deepEqual(d.origin, { city: "Grand Prairie", state: "TX", zip: "75050", street: "501 Fountain Parkway" });
     assert.equal(d.consignee.name, "RDI Enclosures & Systems");
     assert.equal(d.consignee.street, "1070 ARDMORE AVE");
     assert.equal(d.consignee.contact, "PH#6303738084, brian dlugos@therdigroup.com");
@@ -106,13 +107,30 @@ await test("fuel surcharge scale", () => {
   assert.equal(isStale({ week: "2026-10-19" }, new Date("2026-10-23")), false);
 });
 
-await test("EIA response handling", async () => {
+await test("EIA weekly page, Wednesday rule", async () => {
+  const html = read("./eia-diesel-page.html");
+  const weeks = parseEiaHistoryPage(html);
+  assert.deepEqual(weeks.at(-1), { week: "2026-10-19", price: 6.276 });
+  // Monday 10/19 price takes effect Wednesday 10/21.
+  assert.equal(effectivePrice(weeks, new Date(2026, 9, 20)).week, "2026-10-12");
+  assert.equal(effectivePrice(weeks, new Date(2026, 9, 21)).week, "2026-10-19");
+  const fake = async () => ({ ok: true, text: async () => html });
+  assert.deepEqual(await fetchDieselPricePublic(fake, new Date(2026, 9, 23)), { price: 6.276, week: "2026-10-19", source: "EIA weekly page" });
+  assert.equal(fscPerMile(6.276), 1.03);
+});
+
+await test("lane miles from geocoder + router responses", async () => {
+  const calls = [];
   const fake = async (url) => {
-    assert.match(url, /api_key=KEY/);
-    assert.match(url, /EMD_EPD2D_PTE_NUS_DPG/);
-    return { ok: true, json: async () => ({ response: { data: [{ period: "2026-10-19", value: "3.789" }] } }) };
+    calls.push(url);
+    if (url.includes("census.gov")) return { ok: true, json: async () => ({ result: { addressMatches: [{ coordinates: url.includes("Fountain") ? { x: -97.06, y: 32.78 } : { x: -88.03, y: 41.98 } }] } }) };
+    if (url.includes("project-osrm")) return { ok: true, json: async () => ({ code: "Ok", routes: [{ distance: 1502534.7 }] }) };
+    throw new Error("unexpected " + url);
   };
-  assert.deepEqual(await fetchDieselPrice("KEY", fake), { price: 3.789, week: "2026-10-19", source: "EIA" });
+  const r = await laneMiles({ street: "501 Fountain Parkway", city: "Grand Prairie", state: "TX", zip: "75050" }, { street: "1070 ARDMORE AVE", city: "Itasca", state: "IL", zip: "60143" }, fake);
+  assert.deepEqual(r, { miles: 934, precision: "street address" });
+  assert.match(calls[2], /-97.06,32.78;-88.03,41.98/);
+  assert.equal(addressText({ city: "Itasca", state: "IL", zip: "60143" }), "Itasca, IL 60143");
 });
 
 await test("accessorials", () => {

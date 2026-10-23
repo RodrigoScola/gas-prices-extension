@@ -10,7 +10,10 @@
     "https://outlook.office.com/*",
     "https://outlook.office365.com/*",
     "https://outlook.live.com/*",
-    "https://api.eia.gov/*"
+    "https://www.eia.gov/*",
+    "https://geocoding.geo.census.gov/*",
+    "https://nominatim.openstreetmap.org/*",
+    "https://router.project-osrm.org/*"
   ],
   "background": {
     "service_worker": "background.js",

@@ -29,7 +29,8 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 │  via right-click)    │              │ 3. fuel         (lib/fuel.js)  │
 └──────────────────────┘              │    accessorials (lib/accessorials.js)
                                       │ quote = linehaul + temp surcharge
-        api.eia.gov  ───── diesel ──▶ │        + fuel + accessorials   │
+   eia.gov weekly page ── diesel ──▶ │        + fuel + accessorials   │
+   Census geocoder + OSRM ── miles ─▶ │                                │
                                       └───────────────────────────────┘
    Rate sheets (.xlsx) are loaded once and kept in chrome.storage.local.
 ```
@@ -37,55 +38,60 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 | Part | File | Status |
 |---|---|---|
 | Manifest V3 with side panel, toolbar button, right-click menu | `manifest.json`, `background.js` | Done |
-| Read the open email as text (Gmail `div.a3s`, Outlook message body, selection, whole-page fallback) | `lib/capture.js` | Done. Not yet tried on a live Gmail or Outlook inbox |
+| Read the open email as text, with the subject (Gmail `div.a3s` + `h2.hP` first; Outlook later), selection, whole-page fallback | `lib/capture.js` | Done. Not yet tried on a live Gmail inbox |
 | Email parser: reference #, pickup, delivery, consignee, contact, weight, pieces, value, equipment, miles, dates and times, hazmat, sender | `lib/email.js` | Done for the one real sample and for labeled emails. Needs more samples |
 | .xlsx reader with no library (uses Chrome's built-in `DecompressionStream`) | `lib/xlsx.js` | Done |
 | Rate lookup in "Siemens FTL Final Bid 2026" (3,197 lanes, 4 equipment types, min charge + rate per mile) | `lib/rates.js` | Done |
 | Temporary surcharge % from "Siemens Accepted Surcharge" (city→city, city→state, "all outbound") | `lib/rates.js` | Done |
 | Fuel surcharge from the "Siemens FTL Fuel Surcharge Scale 2026" PDF, turned into a formula | `lib/fuel.js` | Done |
-| Weekly diesel price from the EIA API (series `EMD_EPD2D_PTE_NUS_DPG`), or typed in by hand | `lib/fuel.js` | Done. Needs an EIA API key |
+| Weekly diesel price from EIA's public weekly page (series `EMD_EPD2D_PTE_NUS_DPG`, no key), with the Wednesday rule; can be typed in by hand | `lib/fuel.js` | Done |
+| Lane miles: US Census geocoder for the street address (OpenStreetMap Nominatim for city/zip only), then OSRM driving distance, all free with no keys; saved per lane | `lib/miles.js` | Done. Car routes, not truck routes |
+| Fuel on minimum-charge lanes: off by default, with a toggle | `sidepanel/` | Done. Waiting on Aidan |
 | Accessorials from "FY 2025 Siemens FTL Accessorial Schedule", auto-ticked for weekend, holiday, after-hours and hazmat | `lib/accessorials.js` | Done |
 | Sidebar UI with every field editable, so the broker can fix anything the parser got wrong | `sidepanel/` | Done |
-| Tests | `test/run.mjs` | 12 passing, including tests against the real sheets and both real emails |
+| Tests | `test/run.mjs` | 13 passing, including tests against the real sheets and both real emails |
 
 ### Quote math
 
 - **Lane:** the most specific match wins: city→city, then city→state, then state→city, then state→state. The sheet has all four kinds.
 - **Linehaul:** `max(min charge, miles × rate per mile)`. If a lane only has a minimum, the minimum is used.
 - **Temporary surcharge:** linehaul × the % from the accepted surcharge sheet (most specific entry wins).
-- **Fuel:** miles × the surcharge per mile from the scale. That's $0.01 at $1.150–$1.199 diesel, +$0.01 for every $0.05 above that, capped at $1.28 from $7.50 up. The scale says it adjusts every Wednesday from the prior Monday's DOE price.
+- **Fuel:** miles × the surcharge per mile from the scale (not charged on minimum-charge lanes unless the toggle is on). That's $0.01 at $1.150–$1.199 diesel, +$0.01 for every $0.05 above that, capped at $1.28 from $7.50 up. The scale says it adjusts every Wednesday from the prior Monday's DOE price.
 - **Accessorials:** the ticked items. Team driver is $100, or $0.10/mile over 1,000 miles.
 
 ### Checked so far
 
-- `node test/run.mjs`: 12 tests pass, including the real rate and surcharge sheets.
-- I loaded the extension into a separate test Chrome profile (Chrome 156, using `Extensions.loadUnpacked` over DevTools) and drove the panel:
-  - Real email 1 (3011526620-23K) parsed to Grand Prairie, TX → Fort Worth, TX. "Van" in the subject gave dry van, and "for 10/14" gave the pickup date. The lane matched city to city at a $500 minimum, plus a 10% temporary surcharge, for **$550**. No miles were in the email, so there's no fuel line.
-  - Real email 2 (3010759748-41K/42K/43K/44K, RDI, Itasca IL) handled the run-together "ITASCAIL 60143", the "7200bs" typo, and the phone and email contact lines. The lane is $1.43/mile with a 20% temporary surcharge, so it needs miles. With 960 miles typed in, it came to **$2,156.16**.
-  - A labeled sample with miles (Grand Prairie → Pomona, 1,420 mi, Saturday 7pm pickup) came out to $1,320.60 linehaul + $132.06 temporary surcharge + $752.60 fuel + $200 weekend + $250 after hours, for **$2,655.26**.
-  - The sheets and the diesel price survive a reload.
+- `node test/run.mjs`: 13 tests pass, including the real rate and surcharge sheets.
+- I loaded the extension into a separate test Chrome profile (Chrome 156, using `Extensions.loadUnpacked` over DevTools) and drove the panel against the live APIs on 2026-10-23. Diesel came back as $6.276 for the week of 10/19, which gives a $1.03/mile fuel surcharge.
+  - Real email 1 (3011526620-23K, MEI, Fort Worth) is 20 miles. It's billed at the $500 minimum plus the 10% temporary surcharge, for **$550**. With fuel on minimum lanes turned on, it's $570.60.
+  - Real email 2 (3010759748-41K/42K/43K/44K, RDI, Itasca IL) is 934 miles. That's $1,335.62 linehaul + $267.12 (20% temporary surcharge) + $962.02 fuel, for **$2,564.76**.
+  - The sheets, the diesel price and the miles survive a reload.
 
 ## Next steps, with rough estimates
 
 | # | Work | Estimate | Blocked on |
 |---|---|---|---|
-| 1 | Try "Read open email" on a live inbox and tune the Gmail/Outlook selectors | 1–2 h | Which email client |
+| 1 | Try "Read open email" on a live Gmail inbox and tune the selectors | 1–2 h | Gmail access |
 | 2 | Tune the parser with 5–10 more real emails (different senders and layouts) | 3–5 h | More sample emails |
-| 3 | Miles: look up the lane distance automatically (PC*Miler, Google Distance Matrix, or a miles column in the sheet) | 4–8 h | Which source, and an API key |
-| 4 | EIA key setup and the Wednesday rule (use the price published for the prior Monday) | 1 h | EIA key |
+| 3 | Truck miles: switch to PC*Miler or a similar service if car-route miles (OSRM) aren't close enough. Also host our own routing, because OSRM's public server is only meant for light use | 4–8 h | Whether car miles are acceptable |
+| 4 | Outlook web support | 1–2 h | After Gmail |
 | 5 | Copy the quote to the clipboard and draft the reply to the customer | 2–3 h | What the reply should say |
 | 6 | Read the sheets from Google Workspace instead of loading .xlsx files (Sheets API + OAuth) | 6–10 h | Where the sheets live, plus access |
 | 7 | Specialized equipment and cross-border lanes from the Landstar sheet (Conestoga, lowboy, hotshot and more, 4,300 lanes) | 2–3 h | Whether it's needed |
 | 8 | Optional: move parsing to a local API in Docker (from the meeting) | 4–6 h | Only if the parsing grows beyond the browser |
 | 9 | Package and share: an icon, a private Chrome Web Store listing or a zip | 2 h | Who installs it |
 
+## Decided (Rodrigo, 2026-10-23)
+
+- Gmail first, Outlook later.
+- Pickup is always the sender's Grand Prairie address, and the address block in the email is the delivery.
+- The $ amount in the email is the value of the goods.
+- Miles and diesel come from free public APIs.
+
 ## Open questions
 
-1. **Which address is pickup and which is delivery?** In the sample, I treat the address at the top (MEI, Fort Worth) as the delivery. I treat the sender's signature address (Siemens, Grand Prairie) as the pickup. Is that always right?
-2. **Equipment:** I read it from the subject ("Van Load…" means dry van). What words do flatbed, step deck and reefer loads use in the subject?
-3. **Miles:** the email has none, and per-mile lanes need them. Where should miles come from?
-4. **Fuel on minimum-charge lanes:** should the fuel surcharge apply when the lane is billed at the minimum? Right now it's only added when miles are known.
-5. **$185,690.00:** is this the declared value of the goods, or what we get paid? I label it "Value" for now.
-6. **Email client:** Gmail or Outlook web?
-7. **Rate sheet:** is "Siemens FTL Final Bid 2026" the 3,100-row sheet? It has 3,197 lanes. Should the Landstar specialized sheet be used too?
-8. **More samples:** a handful more real emails would make the parser much more reliable.
+1. **Fuel on minimum-charge lanes:** does the fuel surcharge apply when a lane is billed at its minimum? It's off by default with a toggle (ask Aidan or the client).
+2. **Car vs truck miles:** are OSRM car-route miles close enough, or does the client bill on PC*Miler miles?
+3. **Equipment words:** I read "Van Load…" in the subject as dry van. What do flatbed, step deck and reefer subjects say?
+4. **Rate sheet:** is "Siemens FTL Final Bid 2026" (3,197 lanes) the 3,100-row sheet? Should the Landstar specialized sheet be used too?
+5. **More samples:** a handful more real emails would make the parser much more reliable.

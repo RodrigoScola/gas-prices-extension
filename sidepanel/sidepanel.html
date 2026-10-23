@@ -18,12 +18,6 @@
     <h2>Temporary surcharges</h2>
     <p id="tempStatus" class="muted"></p>
     <label class="file">Load accepted surcharge (.xlsx)<input type="file" id="tempFile" accept=".xlsx"></label>
-    <h2>Diesel price</h2>
-    <div class="row">
-      <label>EIA API key <input type="password" id="eiaKey" autocomplete="off"></label>
-      <button id="saveKey">Save</button>
-    </div>
-    <p class="muted">Free key from eia.gov/opendata. Without one, type the price below.</p>
   </section>
 
   <section>
@@ -43,7 +37,11 @@
       <label>Pickup <input id="origin" placeholder="City, ST"></label>
       <label>Delivery <input id="destination" placeholder="City, ST"></label>
       <label>Equipment <select id="equipment"></select></label>
-      <label>Miles <input type="number" id="miles" min="0" step="1" placeholder="needed for per-mile lanes"></label>
+      <label>Miles <input type="number" id="miles" min="0" step="1" placeholder="filled in from the route"></label>
+    </div>
+    <div class="row">
+      <button id="getMiles" class="secondary">Recalculate miles</button>
+      <span id="milesNote" class="muted"></span>
     </div>
     <p id="laneResult"></p>
   </section>
@@ -55,6 +53,7 @@
       <button id="refreshDiesel" class="secondary">Get from EIA</button>
     </div>
     <p id="fuelResult" class="muted"></p>
+    <label class="acc"><span><input type="checkbox" id="fuelOnMinimum"> Charge fuel on minimum-charge lanes too</span></label>
   </section>
 
   <section>

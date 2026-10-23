@@ -8,7 +8,7 @@ Chrome extension (Manifest V3, `chrome.sidePanel`). It reads a shipping email as
 2. Click **Load unpacked** and pick this folder.
 3. Pin the extension and click its icon to open the sidebar.
 4. Under **Data & settings**, load `Siemens FTL Final Bid 2026.xlsx` and `Siemens Accepted Surcharge.xlsx`. They're kept until you load new ones.
-5. Optional: paste a free EIA API key (https://www.eia.gov/opendata/register.php) so the diesel price fills in by itself. Otherwise type it in.
+5. Diesel prices and lane miles fill in automatically from free public services (EIA, US Census geocoder, OSRM), with no keys needed.
 
 ## Use it
 
