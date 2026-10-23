@@ -68,6 +68,7 @@ function useEmail(text, source) {
     ["Pieces", d.pieces],
     ["Value", d.value != null ? money(d.value) : null],
     ["Equipment", d.equipment ?? "not in email, pick below"],
+    ["Ready", d.readyNow ? "Ready now" : null],
     ["Pickup date", fmtDT(d.pickup) || null],
     ["Delivery date", fmtDT(d.delivery) || null],
     ["Sender", d.sender],

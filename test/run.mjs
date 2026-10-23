@@ -27,10 +27,19 @@ await test("unlabeled email (real sample layout)", () => {
   assert.equal(d.pieces, "4 cs");
   assert.equal(d.weight, 2150);
   assert.equal(d.sender, "Sam Sender");
-  assert.equal(d.equipment, null);
+  assert.equal(d.equipment, "Dry van/tractor trailer");
+  assert.equal(d.readyNow, true);
+  assert.equal(d.pickup.date.getMonth(), 9);
+  assert.equal(d.pickup.date.getDate(), 28);
 });
 
 if (existsSync(file("../private/email-real-1.txt"))) {
+  await test("real email 1 with subject", () => {
+    const s = parseEmail(read("../private/email-real-1-with-subject.txt"));
+    assert.equal(s.reference, "3011526620-23K");
+    assert.equal(s.equipment, "Dry van/tractor trailer");
+    assert.equal(s.pickup.date.getDate(), 14);
+  });
   await test("real email 1", () => {
     const d = parseEmail(read("../private/email-real-1.txt"));
     assert.equal(d.reference, "3011526620-23K");
@@ -40,6 +49,24 @@ if (existsSync(file("../private/email-real-1.txt"))) {
     assert.equal(d.value, 185690);
     assert.equal(d.weight, 3600);
     assert.equal(d.pieces, "2 cs");
+  });
+}
+
+if (existsSync(file("../private/email-real-2.txt"))) {
+  await test("real email 2 (RDI, Itasca)", () => {
+    const d = parseEmail(read("../private/email-real-2.txt"));
+    assert.equal(d.reference, "3010759748-41K/42K/43K/44K");
+    assert.deepEqual(d.destination, { city: "Itasca", state: "IL", zip: "60143" });
+    assert.deepEqual(d.origin, { city: "Grand Prairie", state: "TX", zip: "75050" });
+    assert.equal(d.consignee.name, "RDI Enclosures & Systems");
+    assert.equal(d.consignee.street, "1070 ARDMORE AVE");
+    assert.equal(d.consignee.contact, "PH#6303738084, brian dlugos@therdigroup.com");
+    assert.equal(d.value, 132600);
+    assert.equal(d.pieces, "4 pcs");
+    assert.equal(d.weight, 7200);
+    assert.equal(d.equipment, "Dry van/tractor trailer");
+    assert.equal(d.pickup.date.getDate(), 14);
+    assert.equal(d.readyNow, true);
   });
 }
 
@@ -114,6 +141,8 @@ if (existsSync(file("../private/Siemens FTL Final Bid 2026.xlsx"))) {
     const fw = findLane(lanes, gp, { city: "Fort Worth", state: "TX" });
     assert.equal(fw.match, "city to city");
     assert.deepEqual(fw.lane.rates["Dry van/tractor trailer"], { min: 500, perMile: null });
+    // Min Charge cell holds a space here; it must not become a $0 minimum.
+    assert.deepEqual(findLane(lanes, gp, { city: "Itasca", state: "IL" }).lane.rates["Dry van/tractor trailer"], { min: null, perMile: 1.43 });
     const pom = findLane(lanes, gp, { city: "Pomona", state: "CA" });
     assert.equal(pom.lane.rates["Dry van/tractor trailer"].perMile, 0.93);
     const st = findLane(lanes, { city: "Nowhere", state: "WY" }, { city: "Elsewhere", state: "WY" });

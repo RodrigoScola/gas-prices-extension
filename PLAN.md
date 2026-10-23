@@ -46,7 +46,7 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 | Weekly diesel price from the EIA API (series `EMD_EPD2D_PTE_NUS_DPG`), or typed in by hand | `lib/fuel.js` | Done. Needs an EIA API key |
 | Accessorials from "FY 2025 Siemens FTL Accessorial Schedule", auto-ticked for weekend, holiday, after-hours and hazmat | `lib/accessorials.js` | Done |
 | Sidebar UI with every field editable, so the broker can fix anything the parser got wrong | `sidepanel/` | Done |
-| Tests | `test/run.mjs` | 10 passing, including tests against the real sheets |
+| Tests | `test/run.mjs` | 12 passing, including tests against the real sheets and both real emails |
 
 ### Quote math
 
@@ -58,9 +58,10 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 
 ### Checked so far
 
-- `node test/run.mjs`: 10 tests pass, including the real rate and surcharge sheets.
+- `node test/run.mjs`: 12 tests pass, including the real rate and surcharge sheets.
 - I loaded the extension into a separate test Chrome profile (Chrome 156, using `Extensions.loadUnpacked` over DevTools) and drove the panel:
-  - The real email (Albert Harbin, 3011526620-23K) parsed to Grand Prairie, TX → Fort Worth, TX. The lane matched city to city at a $500 minimum, plus a 10% temporary surcharge, for **$550**. No miles were in the email, so there's no fuel line.
+  - Real email 1 (3011526620-23K) parsed to Grand Prairie, TX → Fort Worth, TX. "Van" in the subject gave dry van, and "for 10/14" gave the pickup date. The lane matched city to city at a $500 minimum, plus a 10% temporary surcharge, for **$550**. No miles were in the email, so there's no fuel line.
+  - Real email 2 (3010759748-41K/42K/43K/44K, RDI, Itasca IL) handled the run-together "ITASCAIL 60143", the "7200bs" typo, and the phone and email contact lines. The lane is $1.43/mile with a 20% temporary surcharge, so it needs miles. With 960 miles typed in, it came to **$2,156.16**.
   - A labeled sample with miles (Grand Prairie → Pomona, 1,420 mi, Saturday 7pm pickup) came out to $1,320.60 linehaul + $132.06 temporary surcharge + $752.60 fuel + $200 weekend + $250 after hours, for **$2,655.26**.
   - The sheets and the diesel price survive a reload.
 
@@ -81,7 +82,7 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 ## Open questions
 
 1. **Which address is pickup and which is delivery?** In the sample, I treat the address at the top (MEI, Fort Worth) as the delivery. I treat the sender's signature address (Siemens, Grand Prairie) as the pickup. Is that always right?
-2. **Equipment:** the sample email doesn't say. I default to "Dry van/tractor trailer". Is that right for these emails?
+2. **Equipment:** I read it from the subject ("Van Load…" means dry van). What words do flatbed, step deck and reefer loads use in the subject?
 3. **Miles:** the email has none, and per-mile lanes need them. Where should miles come from?
 4. **Fuel on minimum-charge lanes:** should the fuel surcharge apply when the lane is billed at the minimum? Right now it's only added when miles are known.
 5. **$185,690.00:** is this the declared value of the goods, or what we get paid? I label it "Value" for now.
