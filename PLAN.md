@@ -53,7 +53,7 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 | Dev/production flag: the sample email and paste box only show in development | `config.js` | Done |
 | Quote problems spelled out: which part (email, pickup, delivery, rate sheet, miles, fuel) and what to do | `sidepanel/` | Done |
 | Accessorial auto-detection (see below) | `lib/accessorials.js` | Done |
-| Tests | `test/run.mjs` | 14 passing, including tests against the real sheets and both real emails |
+| Tests | `test/` | 188 unit tests (`npm test`) and 11 Chrome end-to-end checks (`npm run test:e2e`) |
 
 ### Quote math
 
@@ -83,7 +83,8 @@ Only ticked when the email or the lane shows it; everything else stays unticked 
 
 ### Checked so far
 
-- `node test/run.mjs`: 13 tests pass, including the real rate and surcharge sheets.
+- `npm test`: 188 unit tests pass, including the real rate and surcharge sheets, every row of the fuel PDF, and both real emails quoted start to finish.
+- `npm run test:e2e`: 11 checks pass in a throwaway Chrome profile with a mock Gmail page.
 - I loaded the extension into a separate test Chrome profile (Chrome 156, using `Extensions.loadUnpacked` over DevTools) and drove the panel against the live APIs on 2026-10-23. Diesel came back as $6.276 for the week of 10/19, which gives a $1.03/mile fuel surcharge.
   - Real email 1 (3011526620-23K, MEI, Fort Worth) is 20 miles. It's billed at the $500 minimum plus the 10% temporary surcharge plus $20.60 fuel, for **$570.60**.
   - Real email 2 (3010759748-41K/42K/43K/44K, RDI, Itasca IL) is 934 miles. That's $1,335.62 linehaul + $267.12 (20% temporary surcharge) + $962.02 fuel, for **$2,564.76**.

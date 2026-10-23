@@ -21,7 +21,29 @@ Set `ENV = "development"` in [config.js](config.js) to get a sample email button
 ## Tests
 
 ```bash
-node test/run.mjs
+npm test
 ```
 
-Tests against the real sheets run when they're in `private/`. That folder is git-ignored so client data stays out of the repo.
+188 unit tests (Node's built-in test runner, no installs), one file per part of the extension:
+
+| File | Covers |
+|---|---|
+| `email.test.mjs` | Email parsing: the Siemens layout, labeled emails, lane sentences, every field, junk and huge input |
+| `dates.test.mjs` | Date and time formats |
+| `rates.test.mjs` | Rate sheet parsing, lane matching (city/state tiers), linehaul, temporary surcharges |
+| `fuel.test.mjs` | Every bracket of the fuel surcharge scale, the EIA page, the Wednesday rule, staleness |
+| `miles.test.mjs` | Geocoding and routing, fallbacks and failures (network mocked) |
+| `accessorials.test.mjs` | Every accessorial's detection, holidays, transit estimate, amounts |
+| `quote.test.mjs` | The whole quote: totals, every "incomplete" message, notes, broker overrides |
+| `xlsx.test.mjs` | The .xlsx reader on generated workbooks |
+| `sheets.test.mjs` | Default sheets, overrides, Back to default (chrome.storage mocked) |
+| `capture.test.mjs` | Reading Gmail/Outlook/selection text from the page (DOM mocked) |
+| `background.test.mjs` | Toolbar button and right-click menu |
+| `manifest.test.mjs` | Manifest, permissions for every host called, files and imports exist |
+| `real-data.test.mjs` | The real Siemens sheets, fuel PDF and both real emails (skipped without `private/`) |
+
+End to end, in a throwaway Chrome profile with a mock Gmail page (needs internet and `private/`):
+
+```bash
+npm run test:e2e
+```

@@ -4,3 +4,4 @@ private/
 *.pdf
 node_modules/
 .chrome-test-profile/
+test/e2e/screenshots/

@@ -2,13 +2,12 @@ import { FEATURES } from "../config.js";
 import { parseEmail } from "../lib/email.js";
 import { captureEmailText } from "../lib/capture.js";
 import { loadSheets } from "../lib/sheets.js";
-import { findLane, matchEquipment, linehaul, findTempSurcharge } from "../lib/rates.js";
-import { fscPerMile, fetchDieselPricePublic, isStale } from "../lib/fuel.js";
+import { matchEquipment } from "../lib/rates.js";
+import { fetchDieselPricePublic, isStale } from "../lib/fuel.js";
 import { laneMiles, addressText } from "../lib/miles.js";
-import { ACCESSORIALS, detectAccessorials, accessorialAmount } from "../lib/accessorials.js";
+import { computeQuote, parsePlace, placeText, money } from "../lib/quote.js";
 
 const $ = (id) => document.getElementById(id);
-const money = (n) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const store = chrome.storage.local;
 
 const state = {
@@ -50,11 +49,6 @@ function renderItems(el, items) {
   }));
 }
 
-const placeText = (p) => (p ? `${p.city}, ${p.state}` : "");
-function parsePlace(s) {
-  const m = String(s).match(/^\s*(.+?),?\s+([A-Za-z]{2})\s*(\d{5})?\s*$/);
-  return m ? { city: m[1].trim(), state: m[2].toUpperCase() } : null;
-}
 function setStatus(el, text, cls = "muted") {
   el.textContent = text;
   el.className = cls;
@@ -262,14 +256,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if ("rateSheet" in changes || "tempSurcharges" in changes) render();
 });
 
-// ---------- accessorials ----------
+// ---------- render ----------
 
-function renderAccessorials(auto, miles) {
-  const box = $("accessorials");
-  box.replaceChildren();
-  for (const item of ACCESSORIALS) {
-    const found = auto.get(item.id);
-    const checked = state.overrides.has(item.id) ? state.overrides.get(item.id) : !!found?.checked;
+function renderAccessorials(accessorials) {
+  $("accessorials").replaceChildren(...accessorials.map(({ item, found, checked, amount }) => {
     const row = document.createElement("label");
     row.className = "acc";
     row.title = `Detected from: ${item.how}`;
@@ -289,116 +279,38 @@ function renderAccessorials(auto, miles) {
       left.append(tag);
     }
     const right = document.createElement("span");
-    right.textContent = money(accessorialAmount(item, { miles, stops: state.details?.stops }));
+    right.textContent = money(amount);
     row.append(left, right);
-    box.append(row);
-  }
+    return row;
+  }));
 }
 
-// ---------- quote ----------
-
 function render() {
-  const rs = state.rateSheet;
-  const d = state.details;
-  const miles = Number($("miles").value) || null;
-  const origin = parsePlace($("origin").value);
-  const dest = parsePlace($("destination").value);
-  const equipment = $("equipment").value;
-  const lines = [];
-  const problems = []; // [where, what] that stop the quote from being complete
-  const notes = []; // [where, what] worth knowing
-  let total = 0;
-
-  if (!d) problems.push(["Email", "no shipping email read yet. Open one in Gmail, or select its text, right-click, and pick “Quote this shipment”."]);
-  if (d && !d.origin && !origin) problems.push(["Pickup", "no pickup address found (no sender signature address in the email). Type it in under Lane as City, ST."]);
-  if (d && !d.destination && !dest) problems.push(["Delivery", "no delivery address found in the email. Type it in under Lane as City, ST."]);
-  else if ((d?.destination || $("destination").value) && !dest) problems.push(["Delivery", `“${$("destination").value}” isn't City, ST.`]);
-  if ((d?.origin || $("origin").value) && !origin) problems.push(["Pickup", `“${$("origin").value}” isn't City, ST.`]);
-  if (d && !state.equipmentFromEmail && equipment) notes.push(["Equipment", `not in the email, so ${equipment} is assumed. Change it under Lane if needed.`]);
-
-  // Miles
-  const milesProblem = () => {
-    if (state.milesBusy) return "still working out the route.";
-    if (state.milesError) return `couldn't work out the route (${state.milesError}). Type the miles in under Lane.`;
-    return "unknown. Type them in under Lane.";
-  };
-
-  // Lane and linehaul
-  let lh = null;
-  if (!rs) {
-    setStatus($("laneResult"), "");
-    problems.push(["Rate sheet", "none loaded. Pick the Final Bid sheet in Data & settings."]);
-  } else if (origin && dest) {
-    const hit = findLane(rs.lanes, origin, dest);
-    const rate = hit?.lane.rates[equipment];
-    if (!hit) {
-      setStatus($("laneResult"), "");
-      problems.push(["Rate sheet", `no lane for ${placeText(origin)} → ${placeText(dest)}, not even a ${origin.state} → ${dest.state} state lane.`]);
-    } else if (!rate) {
-      setStatus($("laneResult"), "");
-      const others = Object.keys(hit.lane.rates);
-      problems.push(["Rate sheet", `the ${placeText(origin)} → ${placeText(dest)} lane (${hit.match}) has no ${equipment} rate.` +
-        (others.length ? ` It has: ${others.join(", ")}.` : " It has no rates at all.")]);
-    } else {
-      const parts = [rate.perMile != null ? `${money(rate.perMile)}/mile` : null, rate.min != null ? `minimum ${money(rate.min)}` : null].filter(Boolean);
-      setStatus($("laneResult"), `Lane matched ${hit.match}: ${parts.join(", ")}.`, "ok");
-      lh = linehaul(rate, miles);
-      if (!lh) problems.push(["Miles", `needed: this lane is priced per mile. Miles are ${milesProblem()}`]);
-      else if (rate.perMile != null && !miles) notes.push(["Linehaul", "using the lane minimum until the miles are known."]);
-    }
-  } else setStatus($("laneResult"), "");
-
-  if (lh) {
-    lines.push([`Linehaul (${lh.basis})`, money(lh.amount)]);
-    total += lh.amount;
-    if (!state.tempSurcharges) notes.push(["Temporary surcharge", "no surcharge sheet loaded, so none is added."]);
-    const temp = state.tempSurcharges ? findTempSurcharge(state.tempSurcharges.list, origin, dest, equipment) : null;
-    if (temp?.pct) {
-      const amt = lh.amount * temp.pct;
-      lines.push([`Temporary surcharge ${Math.round(temp.pct * 100)}%`, money(amt)]);
-      total += amt;
-    }
-  }
-
-  // Fuel (applies on minimum-charge lanes too, confirmed with Aidan 2026-10-23)
-  const diesel = Number($("diesel").value) || state.fuel?.price || null;
-  if (diesel) {
-    if (!$("diesel").value) $("diesel").value = diesel;
-    const perMile = fscPerMile(diesel);
-    const stale = isStale(state.fuel);
-    setStatus($("fuelResult"),
-      `${money(perMile)}/mile surcharge. ` + (state.fuel ? `Source: ${state.fuel.source}, week of ${state.fuel.week}.` : ""),
-      stale ? "muted warn" : "muted");
-    if (stale) notes.push(["Fuel", `the diesel price is from the week of ${state.fuel?.week}, over a week old.`]);
-    if (miles) {
-      lines.push([`Fuel (${miles} mi × ${money(perMile)})`, money(perMile * miles)]);
-      total += perMile * miles;
-    } else if (lh) problems.push(["Fuel", `needs miles. Miles are ${milesProblem()}`]);
-  } else {
-    setStatus($("fuelResult"), state.fuelError ? "" : "Getting this week's diesel price from EIA…");
-    if (state.fuelError) problems.push(["Fuel", `couldn't get the diesel price from EIA (${state.fuelError}). Type this week's price in under Fuel surcharge.`]);
-  }
-  if (miles && $("milesNote").textContent.startsWith("Driving")) notes.push(["Miles", "car-route miles; truck miles can run a few percent longer."]);
-
-  // Accessorials
-  const auto = detectAccessorials(d, { miles, equipment });
-  renderAccessorials(auto, miles);
-  for (const item of ACCESSORIALS) {
-    const checked = state.overrides.has(item.id) ? state.overrides.get(item.id) : !!auto.get(item.id)?.checked;
-    if (!checked) continue;
-    const amt = accessorialAmount(item, { miles, stops: d?.stops });
-    lines.push([item.label.replace(/\s*\(.*\)$/, ""), money(amt)]);
-    total += amt;
-  }
-  for (const [id, found] of auto) {
-    if (!found.checked && !state.overrides.has(id)) notes.push(["Accessorials", `${ACCESSORIALS.find((a) => a.id === id).label}: ${found.reason}.`]);
-  }
-
-  lines.push(["Total", money(total), "total"]);
-  renderList($("quoteDetails"), lines);
-  $("problems").hidden = !problems.length;
-  renderItems($("problemList"), problems);
-  renderItems($("notes"), notes);
+  const q = computeQuote({
+    rateSheet: state.rateSheet,
+    tempSurcharges: state.tempSurcharges,
+    details: state.details,
+    originText: $("origin").value,
+    destText: $("destination").value,
+    equipment: $("equipment").value,
+    equipmentFromEmail: state.equipmentFromEmail,
+    miles: Number($("miles").value) || null,
+    milesStatus: { busy: state.milesBusy, error: state.milesError, fromRoute: $("milesNote").textContent.startsWith("Driving") },
+    diesel: Number($("diesel").value) || null,
+    fuel: state.fuel,
+    fuelError: state.fuelError,
+    overrides: state.overrides,
+  });
+  setStatus($("laneResult"), q.lane?.text || "", "ok");
+  if (q.fuel) {
+    if (!$("diesel").value && state.fuel) $("diesel").value = state.fuel.price;
+    setStatus($("fuelResult"), q.fuel.text, q.fuel.stale ? "muted warn" : "muted");
+  } else setStatus($("fuelResult"), state.fuelError ? "" : "Getting this week's diesel price from EIA…");
+  renderAccessorials(q.accessorials);
+  renderList($("quoteDetails"), q.lines);
+  $("problems").hidden = q.complete;
+  renderItems($("problemList"), q.problems);
+  renderItems($("notes"), q.notes);
 }
 
 // ---------- start ----------
