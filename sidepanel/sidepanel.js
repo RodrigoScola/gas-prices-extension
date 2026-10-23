@@ -347,6 +347,33 @@ Object.assign(state, {
   fuel: saved.fuel || null,
   milesCache: saved.milesCache || {},
 });
+// Default sheets: the copies kept in the extension's private/ folder (git-ignored, so they're
+// only there on machines that have them). A sheet loaded by hand takes their place.
+const DEFAULT_RATE_SHEET = "Siemens FTL Final Bid 2026.xlsx";
+const DEFAULT_TEMP_SHEET = "Siemens Accepted Surcharge.xlsx";
+async function readBundled(name) {
+  try {
+    const res = await fetch(chrome.runtime.getURL(`private/${encodeURIComponent(name)}`));
+    return res.ok ? await readFirstSheet(await res.arrayBuffer()) : null;
+  } catch {
+    return null;
+  }
+}
+if (!state.rateSheet) {
+  const rows = await readBundled(DEFAULT_RATE_SHEET);
+  if (rows) {
+    state.rateSheet = { ...parseRateSheet(rows), fileName: `${DEFAULT_RATE_SHEET} (default)`, loadedAt: new Date().toISOString() };
+    await store.set({ rateSheet: state.rateSheet });
+  }
+}
+if (!state.tempSurcharges) {
+  const rows = await readBundled(DEFAULT_TEMP_SHEET);
+  if (rows) {
+    state.tempSurcharges = { list: parseTempSurcharges(rows), fileName: `${DEFAULT_TEMP_SHEET} (default)` };
+    await store.set({ tempSurcharges: state.tempSurcharges });
+  }
+}
+
 fillEquipment();
 if (state.fuel) $("diesel").value = state.fuel.price;
 if (!state.rateSheet) $("settings").hidden = false;

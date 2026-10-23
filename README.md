@@ -7,7 +7,7 @@ Chrome extension (Manifest V3, `chrome.sidePanel`). It reads a shipping email as
 1. Open `chrome://extensions` and turn on **Developer mode** (top right).
 2. Click **Load unpacked** and pick this folder.
 3. Pin the extension and click its icon to open the sidebar.
-4. Under **Data & settings**, load `Siemens FTL Final Bid 2026.xlsx` and `Siemens Accepted Surcharge.xlsx`. They're kept until you load new ones.
+4. The Final Bid and Accepted Surcharge sheets load automatically from `private/` (the same files as in the project library). To use newer versions, load them under **Data & settings**.
 5. Diesel prices and lane miles fill in automatically from free public services (EIA, US Census geocoder, OSRM), with no keys needed.
 
 ## Use it
