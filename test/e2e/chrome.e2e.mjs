@@ -245,6 +245,12 @@ try {
   s = await dump();
   check("a lane that isn't in the sheet is named in the problems", () => assert.ok(s.problems.some((p) => /^Rate sheet: no lane for Laredo, TX → Honolulu, HI/.test(p)), s.problems.join(" / ")));
 
+  // A wide sidebar: the cards stretch to its full width instead of centering.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1100, height: 900, deviceScaleFactor: 1, mobile: false }, panel.sessionId);
+  await sleep(300);
+  const widths = await P(`[document.body.clientWidth, document.getElementById("quote").getBoundingClientRect().width]`);
+  check("cards fill the sidebar's width when it's wide", () => assert.ok(widths[0] - widths[1] <= 32, `body ${widths[0]}px, card ${widths[1]}px`));
+
   // Theme: system -> light -> dark, remembered for the settings page too.
   await P(`document.querySelector("[data-mode]").click()`);
   await sleep(300);

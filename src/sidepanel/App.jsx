@@ -279,7 +279,7 @@ function AccessorialsCard({ quote, toggleAccessorial }) {
 export default function App() {
   const s = useSidebar();
   return (
-    <Box sx={{ p: 1.5, maxWidth: 560, mx: "auto" }}>
+    <Box id="sidebar" sx={{ p: 1.5 }}>
       <Header reference={s.email.details?.reference} />
       <Stack spacing={1.25}>
         <QuoteCard quote={s.quote} />
