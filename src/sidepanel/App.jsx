@@ -256,18 +256,22 @@ function AccessorialsCard({ quote, toggleAccessorial }) {
   const [showAll, setShowAll] = useState(false);
   const relevant = quote.accessorials.filter((a) => a.checked || a.found);
   const rest = quote.accessorials.filter((a) => !(a.checked || a.found));
+  // Nothing detected: there's nothing to collapse to, so list everything.
+  const open = showAll || relevant.length === 0;
   return (
     <Section icon={AutoAwesomeOutlined} title="Accessorials" action={<Chip size="small" variant="outlined" label={`${quote.accessorials.filter((a) => a.checked).length} added`} />}>
       <Box id="accessorials">
         {relevant.length === 0 && <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>Nothing detected in this email.</Typography>}
         {relevant.map((a) => <AccessorialRow key={a.item.id} a={a} onToggle={toggleAccessorial} />)}
-        <Collapse in={showAll}>
+        <Collapse in={open}>
           {rest.map((a) => <AccessorialRow key={a.item.id} a={a} onToggle={toggleAccessorial} />)}
         </Collapse>
       </Box>
-      <Button size="small" onClick={() => setShowAll((s) => !s)} endIcon={<ExpandMore sx={{ transform: showAll ? "rotate(180deg)" : "none", transition: "transform .2s" }} />} sx={{ mt: 0.5, ml: -0.75 }}>
-        {showAll ? "Hide the others" : `Show all ${quote.accessorials.length}`}
-      </Button>
+      {relevant.length > 0 && (
+        <Button id="toggleAccessorials" size="small" onClick={() => setShowAll((s) => !s)} endIcon={<ExpandMore sx={{ transform: showAll ? "rotate(180deg)" : "none", transition: "transform .2s" }} />} sx={{ mt: 0.5, ml: -0.75 }}>
+          {showAll ? "Hide the others" : `Show all ${quote.accessorials.length}`}
+        </Button>
+      )}
     </Section>
   );
 }

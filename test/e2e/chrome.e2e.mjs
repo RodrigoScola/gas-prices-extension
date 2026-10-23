@@ -133,6 +133,8 @@ try {
     settingsButton: !!document.getElementById("openSettings")?.offsetParent,
     themeButton: document.querySelector("[data-mode]")?.dataset.mode,
     background: getComputedStyle(document.body).backgroundColor,
+    accessorialRowsShown: [...document.querySelectorAll(".acc")].filter(r => getComputedStyle(r).visibility !== "hidden" && r.closest(".MuiCollapse-root")?.getBoundingClientRect().height !== 0).length,
+    accessorialToggle: !!document.getElementById("toggleAccessorials"),
     details: [...document.querySelectorAll("#details dt")].map(dt => dt.textContent + ": " + dt.nextElementSibling.textContent).join(" | "),
     miles: document.getElementById("miles").value,
     milesNote: document.getElementById("milesNote").textContent,
@@ -190,6 +192,10 @@ try {
     assert.match(s.quote, /^Linehaul \(minimum charge\): \$500\.00 \| Temporary surcharge 10%: \$50\.00 \| Fuel \(\d+ mi × \$\d\.\d\d\): \$[\d.,]+ \| Total: \$[\d.,]+$/);
     assert.deepEqual(s.problems, []);
   });
+  check("nothing detected: all 15 accessorials are listed, no Show all button", () => {
+    assert.equal(s.accessorialRowsShown, 15);
+    assert.equal(s.accessorialToggle, false);
+  });
   await shot(panel.sessionId, "email-1.png");
 
   // Click another email the way Gmail does: swap the DOM and change the hash.
@@ -222,6 +228,10 @@ try {
     for (const want of ["Weekend pickup (pickup Saturday, 10/31)", "After-hours pickup", "Tarp (flatbed", "Hazmat (email mentions hazmat)"]) assert.ok(on.includes(want), want);
     assert.match(s.quote, /Weekend pickup: \$200\.00 \| After-hours pickup: \$250\.00 \| Tarp: \$100\.00 \| Hazmat: \$50\.00/);
   });
+  check("something detected: only those show, the rest behind Show all", () => {
+    assert.equal(s.accessorialRowsShown, 5);
+    assert.equal(s.accessorialToggle, true);
+  });
   await shot(panel.sessionId, "right-click.png");
 
   // Typing a lane with no match spells out the problem.
@@ -253,7 +263,7 @@ try {
 
   // Settings page.
   const opts = await open(`${base}/options/index.html`);
-  await sleep(2000);
+  await waitFor(async () => evalIn(opts.sessionId, `!!document.querySelector("[data-mode]") && !!document.getElementById("rateSheetStatus")`).catch(() => false), "the settings page to render");
   const optsMode = await evalIn(opts.sessionId, `document.querySelector("[data-mode]").dataset.mode`);
   check("settings page picks up the dark mode setting", () => assert.equal(optsMode, "dark"));
   const o = await evalIn(opts.sessionId, `[document.getElementById("rateSheetStatus").textContent, document.getElementById("tempSurchargesStatus").textContent, document.getElementById("rateSheetDefault").hidden, document.getElementById("tempSurchargesDefault").hidden]`);
