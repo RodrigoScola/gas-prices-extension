@@ -14,10 +14,16 @@
   <section id="settings" hidden>
     <h2>Rate sheet</h2>
     <p id="rateStatus" class="muted"></p>
-    <label class="file">Load bid sheet (.xlsx)<input type="file" id="rateFile" accept=".xlsx"></label>
+    <div class="row">
+      <label class="file secondary">Use a different file (.xlsx)<input type="file" id="rateFile" accept=".xlsx"></label>
+      <button id="rateDefault" class="secondary" hidden>Back to default</button>
+    </div>
     <h2>Temporary surcharges</h2>
     <p id="tempStatus" class="muted"></p>
-    <label class="file">Load accepted surcharge (.xlsx)<input type="file" id="tempFile" accept=".xlsx"></label>
+    <div class="row">
+      <label class="file secondary">Use a different file (.xlsx)<input type="file" id="tempFile" accept=".xlsx"></label>
+      <button id="tempDefault" class="secondary" hidden>Back to default</button>
+    </div>
   </section>
 
   <section>

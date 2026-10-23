@@ -155,6 +155,38 @@ $("openSettings").addEventListener("click", () => {
   $("openSettings").setAttribute("aria-expanded", String(open));
 });
 
+// Default sheets are the copies kept in the extension's private/ folder (git-ignored, so
+// they're only there on machines that have them; later they could come from an API).
+// A file picked under Data & settings overrides them until "Back to default".
+const DEFAULTS = {
+  rateSheet: "Siemens FTL Final Bid 2026.xlsx",
+  tempSurcharges: "Siemens Accepted Surcharge.xlsx",
+};
+const PARSE = {
+  rateSheet: (rows, fileName) => ({ ...parseRateSheet(rows), fileName, loadedAt: new Date().toISOString() }),
+  tempSurcharges: (rows, fileName) => ({ list: parseTempSurcharges(rows), fileName }),
+};
+
+async function useDefault(key) {
+  let rows = null;
+  try {
+    const res = await fetch(chrome.runtime.getURL(`private/${encodeURIComponent(DEFAULTS[key])}`));
+    if (res.ok) rows = await readFirstSheet(await res.arrayBuffer());
+  } catch {}
+  state[key] = rows ? { ...PARSE[key](rows, DEFAULTS[key]), isDefault: true } : null;
+  rows ? await store.set({ [key]: state[key] }) : await store.remove(key);
+}
+
+$("rateDefault").addEventListener("click", async () => {
+  await useDefault("rateSheet");
+  fillEquipment();
+  render();
+});
+$("tempDefault").addEventListener("click", async () => {
+  await useDefault("tempSurcharges");
+  render();
+});
+
 async function readXlsx(input) {
   const file = input.files[0];
   input.value = "";
@@ -165,7 +197,7 @@ $("rateFile").addEventListener("change", async (e) => {
   try {
     const x = await readXlsx(e.target);
     if (!x) return;
-    state.rateSheet = { ...parseRateSheet(x.rows), fileName: x.name, loadedAt: new Date().toISOString() };
+    state.rateSheet = { ...PARSE.rateSheet(x.rows, x.name), isDefault: false };
     await store.set({ rateSheet: state.rateSheet });
     fillEquipment();
     render();
@@ -178,7 +210,7 @@ $("tempFile").addEventListener("change", async (e) => {
   try {
     const x = await readXlsx(e.target);
     if (!x) return;
-    state.tempSurcharges = { list: parseTempSurcharges(x.rows), fileName: x.name };
+    state.tempSurcharges = { ...PARSE.tempSurcharges(x.rows, x.name), isDefault: false };
     await store.set({ tempSurcharges: state.tempSurcharges });
     render();
   } catch (err) {
@@ -256,12 +288,16 @@ for (const id of ["origin", "destination"]) $(id).addEventListener("change", get
 
 function render() {
   const rs = state.rateSheet;
+  const ts = state.tempSurcharges;
+  const source = (x) => (x.isDefault ? "Default" : "Your file");
   setStatus($("rateStatus"), rs
-    ? `${rs.fileName}: ${rs.lanes.length.toLocaleString()} lanes, loaded ${new Date(rs.loadedAt).toLocaleDateString()}.`
-    : "No rate sheet loaded yet. Load the Final Bid .xlsx.", rs ? "muted" : "muted warn");
-  setStatus($("tempStatus"), state.tempSurcharges
-    ? `${state.tempSurcharges.fileName}: ${state.tempSurcharges.list.length} surcharges.`
-    : "Not loaded. Quotes will leave out temporary surcharges.", state.tempSurcharges ? "muted" : "muted warn");
+    ? `${source(rs)}: ${rs.fileName}, ${rs.lanes.length.toLocaleString()} lanes${rs.isDefault ? "" : `, loaded ${new Date(rs.loadedAt).toLocaleDateString()}`}.`
+    : "No rate sheet. Load the Final Bid .xlsx.", rs ? "muted" : "muted warn");
+  setStatus($("tempStatus"), ts
+    ? `${source(ts)}: ${ts.fileName}, ${ts.list.length} surcharges.`
+    : "Not loaded. Quotes will leave out temporary surcharges.", ts ? "muted" : "muted warn");
+  $("rateDefault").hidden = !rs || rs.isDefault;
+  $("tempDefault").hidden = !ts || ts.isDefault;
 
   const miles = Number($("miles").value) || null;
   const origin = parsePlace($("origin").value);
@@ -347,32 +383,15 @@ Object.assign(state, {
   fuel: saved.fuel || null,
   milesCache: saved.milesCache || {},
 });
-// Default sheets: the copies kept in the extension's private/ folder (git-ignored, so they're
-// only there on machines that have them). A sheet loaded by hand takes their place.
-const DEFAULT_RATE_SHEET = "Siemens FTL Final Bid 2026.xlsx";
-const DEFAULT_TEMP_SHEET = "Siemens Accepted Surcharge.xlsx";
-async function readBundled(name) {
-  try {
-    const res = await fetch(chrome.runtime.getURL(`private/${encodeURIComponent(name)}`));
-    return res.ok ? await readFirstSheet(await res.arrayBuffer()) : null;
-  } catch {
-    return null;
-  }
+// Sheets saved before defaults existed have no isDefault flag; treat them as defaults if they
+// came from the default file name.
+for (const key of ["rateSheet", "tempSurcharges"]) {
+  const x = state[key];
+  if (x && x.isDefault === undefined) x.isDefault = /\(default\)$/.test(x.fileName) || x.fileName === DEFAULTS[key];
+  if (x?.isDefault) x.fileName = DEFAULTS[key];
 }
-if (!state.rateSheet) {
-  const rows = await readBundled(DEFAULT_RATE_SHEET);
-  if (rows) {
-    state.rateSheet = { ...parseRateSheet(rows), fileName: `${DEFAULT_RATE_SHEET} (default)`, loadedAt: new Date().toISOString() };
-    await store.set({ rateSheet: state.rateSheet });
-  }
-}
-if (!state.tempSurcharges) {
-  const rows = await readBundled(DEFAULT_TEMP_SHEET);
-  if (rows) {
-    state.tempSurcharges = { list: parseTempSurcharges(rows), fileName: `${DEFAULT_TEMP_SHEET} (default)` };
-    await store.set({ tempSurcharges: state.tempSurcharges });
-  }
-}
+if (!state.rateSheet) await useDefault("rateSheet");
+if (!state.tempSurcharges) await useDefault("tempSurcharges");
 
 fillEquipment();
 if (state.fuel) $("diesel").value = state.fuel.price;
