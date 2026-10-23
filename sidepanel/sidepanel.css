@@ -27,5 +27,11 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .missing { color: var(--warn); }
 .acc { display: flex; justify-content: space-between; gap: 6px; padding: 2px 0; }
 .acc .auto { font-size: 11px; color: var(--ok); }
+.acc { align-items: flex-start; }
 #quoteDetails dd { text-align: right; font-variant-numeric: tabular-nums; }
 .total { font-weight: 700; font-size: 15px; }
+#problems ul, #notes { margin: 4px 0 0; padding-left: 18px; }
+#problemList li { color: var(--warn); }
+#problemList b, #notes b { font-weight: 600; }
+.acc .hint { font-size: 11px; color: var(--warn); }
+.dev { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; border: 1px dashed var(--warn); color: var(--warn); padding: 0 4px; border-radius: 3px; }

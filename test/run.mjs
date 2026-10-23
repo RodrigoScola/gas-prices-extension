@@ -138,8 +138,39 @@ await test("accessorials", () => {
   assert.equal(isHoliday(new Date(2026, 4, 25)), true); // Memorial Day 2026
   assert.equal(isHoliday(new Date(2026, 8, 7)), true); // Labor Day 2026
   assert.equal(isHoliday(new Date(2026, 10, 11)), false);
+  const ticked = (m) => [...m].filter(([, v]) => v.checked).map(([k]) => k).sort();
+  const hinted = (m) => [...m].filter(([, v]) => !v.checked).map(([k]) => k).sort();
   const on = detectAccessorials({ pickup: { date: new Date(2026, 9, 31), minutes: 19 * 60 }, delivery: { date: new Date(2026, 11, 25), minutes: 600 } });
-  assert.deepEqual([...on].sort(), ["afterHoursPickup", "holidayDelivery", "weekendPickup"]);
+  assert.deepEqual(ticked(on), ["afterHoursPickup", "holidayDelivery", "weekendPickup"]);
+
+  // Nothing in the email: nothing ticked.
+  assert.deepEqual(ticked(detectAccessorials(parseEmail("Load from Dallas, TX to Atlanta, GA"))), []);
+  assert.equal(detectAccessorials(null).size, 0);
+
+  // Keywords, checked against the equipment.
+  const kw = parseEmail("Flatbed load, needs tarps, oversize, team service required, drop trailer at shipper, hazmat class 3. Dallas, TX to Atlanta, GA");
+  assert.deepEqual(ticked(detectAccessorials(kw, { equipment: "Flatbed Rate inclusive of 48' & 53'" })), ["dropTrailer", "hazmat", "overDim", "tarp", "team"]);
+  assert.deepEqual(hinted(detectAccessorials(kw, { equipment: "Dry van/tractor trailer" })), ["tarp"]);
+  assert.equal(parseEmail("Our logistics team will call.").flags.team, false);
+  assert.equal(parseEmail("UN1993 drums").hazmat, true);
+
+  // READY NOW: same-day only when the pickup is today (or has no date).
+  const now = new Date(2026, 9, 14, 9);
+  assert.equal(detectAccessorials({ readyNow: true, pickup: { date: new Date(2026, 9, 14) } }, { now }).get("sameDay").checked, true);
+  assert.equal(detectAccessorials({ readyNow: true, pickup: { date: new Date(2026, 9, 20) } }, { now }).has("sameDay"), false);
+
+  // Estimated delivery on a weekend is a hint, not a tick: Thu 10/15 pickup + 934 mi = Sat 10/17.
+  const est = detectAccessorials({ pickup: { date: new Date(2026, 9, 15) } }, { miles: 934 });
+  assert.deepEqual(hinted(est), ["weekendDelivery"]);
+  assert.deepEqual(ticked(est), []);
+});
+
+await test("stop-offs from extra delivery addresses", () => {
+  const two = "Subject: Van Load\n\nACME\n1 Main St\nDALLAS TX 75201\n\nBETA\n2 Oak Ave\nAUSTIN TX 78701\n\nRegards,\nSam\n\nShipper Inc\n501 Fountain Parkway\nGrand Prairie, TX 75050, USA";
+  const d = parseEmail(two);
+  assert.equal(d.destination.city, "Dallas");
+  assert.equal(d.stops, 1);
+  assert.equal(parseEmail(read("../sample/email-sample.txt")).stops, 0);
 });
 
 await test("linehaul uses the minimum when it is higher", () => {

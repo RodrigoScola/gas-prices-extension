@@ -48,7 +48,12 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 | Lane miles: US Census geocoder for the street address (OpenStreetMap Nominatim for city/zip only), then OSRM driving distance, all free with no keys; saved per lane | `lib/miles.js` | Done. Car routes, not truck routes |
 | Accessorials from "FY 2025 Siemens FTL Accessorial Schedule", auto-ticked for weekend, holiday, after-hours and hazmat | `lib/accessorials.js` | Done |
 | Sidebar UI with every field editable, so the broker can fix anything the parser got wrong | `sidepanel/` | Done |
-| Tests | `test/run.mjs` | 13 passing, including tests against the real sheets and both real emails |
+| Reads the open Gmail email by itself when the sidebar opens and whenever you switch tab or email; right-click works anywhere | `sidepanel/`, `lib/capture.js` | Done. Tested against a mock Gmail page, not a live inbox yet |
+| Rate and surcharge sheets as settings on the options page, with built-in defaults | `options/`, `lib/sheets.js` | Done |
+| Dev/production flag: the sample email and paste box only show in development | `config.js` | Done |
+| Quote problems spelled out: which part (email, pickup, delivery, rate sheet, miles, fuel) and what to do | `sidepanel/` | Done |
+| Accessorial auto-detection (see below) | `lib/accessorials.js` | Done |
+| Tests | `test/run.mjs` | 14 passing, including tests against the real sheets and both real emails |
 
 ### Quote math
 
@@ -57,6 +62,24 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 - **Temporary surcharge:** linehaul × the % from the accepted surcharge sheet (most specific entry wins).
 - **Fuel:** miles × the surcharge per mile from the scale, including on minimum-charge lanes. That's $0.01 at $1.150–$1.199 diesel, +$0.01 for every $0.05 above that, capped at $1.28 from $7.50 up. The scale says it adjusts every Wednesday from the prior Monday's DOE price.
 - **Accessorials:** the ticked items. Team driver is $100, or $0.10/mile over 1,000 miles.
+
+### Accessorial detection
+
+Only ticked when the email or the lane shows it; everything else stays unticked for the broker.
+
+| Accessorial | Ticked when |
+|---|---|
+| Same-day pickup | "READY NOW" and the pickup date is today (or not given) |
+| Weekend / holiday pickup | Pickup date is a Saturday, Sunday or one of the six holidays |
+| After-hours pickup / delivery | A time in the email is before 6am or after 6pm |
+| Weekend / holiday delivery | Delivery date in the email. With none, the estimated delivery (about 500 miles a day) only raises a flag to check |
+| Tarp / double-drop tarp | "tarp" in the email on open-deck / double-drop equipment (flagged on a van) |
+| Over dimensional | "oversize", "over dimensional", "wide load", "permit load" |
+| Stop-off | More than one delivery address in the email (per extra stop) |
+| Hazmat | "hazmat", "hazardous", a UN number, a hazard class, "placard" |
+| Team driver | "team driver", "team service", "team required" |
+| Drop trailer | "drop trailer", "drop and hook" |
+| Detention, layover, TONU, straps over 10, permits | Not quoted: they happen after booking |
 
 ### Checked so far
 

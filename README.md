@@ -7,16 +7,16 @@ Chrome extension (Manifest V3, `chrome.sidePanel`). It reads a shipping email as
 1. Open `chrome://extensions` and turn on **Developer mode** (top right).
 2. Click **Load unpacked** and pick this folder.
 3. Pin the extension and click its icon to open the sidebar.
-4. The Final Bid and Accepted Surcharge sheets are built-in defaults, loaded from `private/` (the same files as in the project library). To override either one, open **Data & settings** and click **Use a different file**. **Back to default** undoes it.
+4. The Final Bid and Accepted Surcharge sheets are built-in defaults, loaded from `private/` (the same files as in the project library). To override either one, click **Data & settings** in the sidebar (it opens the extension's options page) and pick a different file. **Back to default** undoes it.
 5. Diesel prices and lane miles fill in automatically from free public services (EIA, US Census geocoder, OSRM), with no keys needed.
 
 ## Use it
 
-- Open an email and click **Read open email**, or
-- select the email text, right-click, and pick **Quote this shipment**, or
-- paste the text into the box.
+Open a shipping email in Gmail with the sidebar open. It reads the email by itself, including when you switch to another email. Miles, diesel and accessorials fill in automatically. Every field can still be edited, and the quote updates as you type. For text outside Gmail, select it, right-click, and pick **Quote this shipment**.
 
-Every field can be edited, and the quote updates as you type.
+## Development mode
+
+Set `ENV = "development"` in [config.js](config.js) to get a sample email button and a paste box in the sidebar. Reload the extension after changing it.
 
 ## Tests
 

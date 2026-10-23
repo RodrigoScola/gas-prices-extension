@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Quote sidebar settings</title>
+  <link rel="stylesheet" href="../sidepanel/sidepanel.css">
+  <style>body { max-width: 560px; margin: 24px auto; }</style>
+</head>
+<body>
+  <h1>Data &amp; settings</h1>
+
+  <section>
+    <h2>Rate sheet</h2>
+    <p id="rateSheetStatus" class="muted"></p>
+    <div class="row">
+      <label class="file secondary">Use a different file (.xlsx)<input type="file" id="rateSheetFile" accept=".xlsx"></label>
+      <button id="rateSheetDefault" class="secondary" hidden>Back to default</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Temporary surcharges</h2>
+    <p id="tempSurchargesStatus" class="muted"></p>
+    <div class="row">
+      <label class="file secondary">Use a different file (.xlsx)<input type="file" id="tempSurchargesFile" accept=".xlsx"></label>
+      <button id="tempSurchargesDefault" class="secondary" hidden>Back to default</button>
+    </div>
+  </section>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

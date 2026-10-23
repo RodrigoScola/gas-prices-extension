@@ -8,32 +8,17 @@
 <body>
   <header>
     <h1>Shipment quote</h1>
-    <button id="openSettings" class="link" aria-expanded="false">Data &amp; settings</button>
+    <button id="openSettings" class="link">Data &amp; settings</button>
   </header>
-
-  <section id="settings" hidden>
-    <h2>Rate sheet</h2>
-    <p id="rateStatus" class="muted"></p>
-    <div class="row">
-      <label class="file secondary">Use a different file (.xlsx)<input type="file" id="rateFile" accept=".xlsx"></label>
-      <button id="rateDefault" class="secondary" hidden>Back to default</button>
-    </div>
-    <h2>Temporary surcharges</h2>
-    <p id="tempStatus" class="muted"></p>
-    <div class="row">
-      <label class="file secondary">Use a different file (.xlsx)<input type="file" id="tempFile" accept=".xlsx"></label>
-      <button id="tempDefault" class="secondary" hidden>Back to default</button>
-    </div>
-  </section>
 
   <section>
     <h2>1. Email</h2>
-    <div class="row">
-      <button id="readTab">Read open email</button>
-      <button id="loadSample" class="secondary">Sample</button>
-    </div>
-    <textarea id="email" rows="6" placeholder="Click Read open email, right-click selected text and pick &quot;Quote this shipment&quot;, or paste the email here."></textarea>
     <p id="captureNote" class="muted"></p>
+    <div id="devTools" class="row" hidden>
+      <span class="dev">dev</span>
+      <button id="loadSample" class="secondary">Sample email</button>
+    </div>
+    <textarea id="email" rows="6" hidden placeholder="Paste an email here (development only)."></textarea>
     <dl id="details"></dl>
   </section>
 
@@ -43,12 +28,9 @@
       <label>Pickup <input id="origin" placeholder="City, ST"></label>
       <label>Delivery <input id="destination" placeholder="City, ST"></label>
       <label>Equipment <select id="equipment"></select></label>
-      <label>Miles <input type="number" id="miles" min="0" step="1" placeholder="filled in from the route"></label>
+      <label>Miles <input type="number" id="miles" min="0" step="1" placeholder="from the route"></label>
     </div>
-    <div class="row">
-      <button id="getMiles" class="secondary">Recalculate miles</button>
-      <span id="milesNote" class="muted"></span>
-    </div>
+    <p id="milesNote" class="muted"></p>
     <p id="laneResult"></p>
   </section>
 
@@ -56,7 +38,6 @@
     <h2>3. Fuel surcharge</h2>
     <div class="row">
       <label>Diesel $/gal <input type="number" id="diesel" step="0.001" min="0"></label>
-      <button id="refreshDiesel" class="secondary">Get from EIA</button>
     </div>
     <p id="fuelResult" class="muted"></p>
   </section>
@@ -69,7 +50,11 @@
   <section id="quote">
     <h2>Quote</h2>
     <dl id="quoteDetails"></dl>
-    <p id="quoteNote" class="muted"></p>
+    <div id="problems" hidden>
+      <p class="warn"><strong>Quote is incomplete:</strong></p>
+      <ul id="problemList"></ul>
+    </div>
+    <ul id="notes" class="muted"></ul>
   </section>
 
   <script type="module" src="sidepanel.js"></script>

@@ -22,6 +22,10 @@
   "side_panel": {
     "default_path": "sidepanel/sidepanel.html"
   },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
   "action": {
     "default_title": "Open the quote sidebar"
   }
