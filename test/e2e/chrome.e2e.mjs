@@ -218,6 +218,52 @@ try {
   });
   await shot(panel.sessionId, "email-2.png");
 
+  // Switch to a non-Gmail tab that has shipping-looking text: nothing is read, the quote stays.
+  const { targetId: xTarget } = await send("Target.createTarget", { url: "about:blank" });
+  const { sessionId: x } = await send("Target.attachToTarget", { targetId: xTarget, flatten: true });
+  await send("Fetch.enable", { patterns: [{ urlPattern: "https://example.com/*" }] }, x);
+  listeners.push(async (msg) => {
+    if (msg.method !== "Fetch.requestPaused" || msg.sessionId !== x) return;
+    await send("Fetch.fulfillRequest", {
+      requestId: msg.params.requestId, responseCode: 200,
+      responseHeaders: [{ name: "Content-Type", value: "text/html" }],
+      body: Buffer.from("<p>Pickup: Dallas, TX 75201</p><p>Deliver to: Atlanta, GA 30303</p><p>Reefer 40,000 lbs</p>").toString("base64"),
+    }, x);
+  });
+  await send("Page.enable", {}, x);
+  await send("Page.navigate", { url: "https://example.com/load-board" }, x);
+  await sleep(1000);
+  await send("Target.activateTarget", { targetId: xTarget });
+  await sleep(3000);
+  s = await dump();
+  check("a non-Gmail tab isn't read, and the quote stays", () => {
+    assert.match(s.details, /Delivery: Itasca, IL 60143/);
+    assert.doesNotMatch(s.details, /Atlanta/);
+    assert.match(s.quote, /Temporary surcharge 20%/);
+  });
+
+  // Close and reopen the sidebar (a reload): the last quote comes back, edits included.
+  await P(`(() => {
+    const m = document.getElementById("miles");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(m, "950");
+    m.dispatchEvent(new Event("input", { bubbles: true }));
+  })()`);
+  await sleep(500);
+  await send("Page.reload", {}, panel.sessionId);
+  await waitFor(async () => /Itasca/.test((await dump().catch(() => ({ details: "" }))).details), "the restored quote");
+  s = await dump();
+  check("reopening the sidebar restores the last quote with its edits", () => {
+    assert.match(s.details, /Reference: 3010759748-41K\/42K\/43K\/44K/);
+    assert.equal(s.miles, "950");
+    assert.match(s.quote, /Fuel \(950 mi/);
+  });
+
+  // Back to Gmail on the same email: nothing changes (the typed miles are kept).
+  await send("Target.activateTarget", { targetId: gTarget });
+  await sleep(3000);
+  s = await dump();
+  check("back on the same Gmail email: edits are kept", () => assert.equal(s.miles, "950"));
+
   // Right-click: what the context menu hands the panel.
   await P(`chrome.storage.session.set({ pendingEmail: { text: "Flatbed load, needs tarps.\\nPickup: Laredo, TX 78040\\nDeliver to: Fort Worth, TX 76111\\nPickup date: 10/31/2026 5:00 AM\\nhazmat UN1993", at: Date.now() } })`);
   await waitFor(async () => { const x = await dump(); return /Laredo/.test(x.details) && /Driving/.test(x.milesNote); }, "right-click miles");

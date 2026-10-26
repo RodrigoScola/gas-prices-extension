@@ -1,6 +1,13 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { captureEmailText } from "../lib/capture.js";
+import { captureEmailText, isGmail } from "../lib/capture.js";
+
+test("only Gmail tabs are read automatically", () => {
+  for (const u of ["https://mail.google.com/mail/u/0/#inbox/FMfcgz", "https://mail.google.com/mail/u/1/"]) assert.equal(isGmail(u), true, u);
+  for (const u of ["https://outlook.office.com/mail/", "https://example.com/?q=https://mail.google.com/", "http://mail.google.com/", "https://mail.google.com.evil.com/", "chrome://newtab/", "", undefined]) {
+    assert.equal(isGmail(u), false, String(u));
+  }
+});
 
 // captureEmailText runs inside the page, so give it a small fake page.
 const el = (innerText, visible = true) => ({ innerText, offsetParent: visible ? {} : null });

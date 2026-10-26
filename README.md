@@ -28,7 +28,7 @@ After `npm run build`, click the reload arrow on the extension's card in `chrome
 
 ## Use it
 
-Open a shipping email in Gmail with the sidebar open. It reads the email by itself, including when you switch to another email. Miles, diesel and accessorials fill in automatically, and the total sits at the top with anything still missing listed under it. Every field can still be edited. For text outside Gmail, select it, right-click, and pick **Quote this shipment**. The sun/moon button switches between system, light and dark mode.
+Open a shipping email in Gmail with the sidebar open. It reads the email by itself, including when you switch to another email. Only Gmail tabs are read: switching to any other tab keeps the current quote, and closing and reopening the sidebar brings it back with your edits. Miles, diesel and accessorials fill in automatically, and the total sits at the top with anything still missing listed under it. Every field can still be edited. For text outside Gmail, select it, right-click, and pick **Quote this shipment**. The sun/moon button switches between system, light and dark mode.
 
 ## Development mode
 
@@ -40,7 +40,7 @@ Set `ENV = "development"` in [config.js](config.js) to get a sample email button
 npm test
 ```
 
-190 unit tests (Node's built-in test runner, no installs), one file per part of the extension:
+191 unit tests (Node's built-in test runner, no installs), one file per part of the extension:
 
 | File | Covers |
 |---|---|

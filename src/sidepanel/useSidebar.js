@@ -2,7 +2,7 @@
 // looks up miles and diesel, and computes the quote. The page components only render it.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parseEmail } from "../../lib/email.js";
-import { captureEmailText } from "../../lib/capture.js";
+import { captureEmailText, isGmail } from "../../lib/capture.js";
 import { loadSheets } from "../../lib/sheets.js";
 import { matchEquipment } from "../../lib/rates.js";
 import { fetchDieselPricePublic, isStale } from "../../lib/fuel.js";
@@ -55,6 +55,7 @@ export function useSidebar() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id) return;
+      if (!isGmail(tab.url)) return noEmail("Open a shipping email in Gmail to quote it.");
       const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: captureEmailText });
       if (run !== readRun.current) return;
       if (result?.text) return applyEmail(result.text, result.source);
@@ -66,6 +67,18 @@ export function useSidebar() {
       if (run === readRun.current) noEmail("Open a shipping email in Gmail to quote it.");
     }
   }, [applyEmail]);
+
+  // The last quote, edits included, survives the sidebar closing or reloading (until Chrome
+  // restarts: storage.session).
+  const restoreLastQuote = useCallback(async () => {
+    const { lastQuote: q } = await chrome.storage.session.get("lastQuote");
+    if (!q?.text) return;
+    emailText.current = q.text;
+    setEmail({ text: q.text, source: q.source, details: parseEmail(q.text), note: null });
+    setLane(q.lane);
+    setMiles({ ...q.miles, busy: false, error: null });
+    setOverrides(new Map(q.overrides));
+  }, []);
 
   const takePending = useCallback(async () => {
     const { pendingEmail } = await chrome.storage.session.get("pendingEmail");
@@ -130,6 +143,7 @@ export function useSidebar() {
       const loaded = await loadSheets();
       setSheets({ ...loaded, loaded: true });
       sheetsRef.current = { ...loaded, loaded: true };
+      await restoreLastQuote();
       if (!(await takePending())) readActiveTab();
       // A typed-in price stays until it's a week old; an EIA price refreshes when the next week is out.
       if (!saved.fuel || isStale(saved.fuel) || (saved.fuel.source !== "typed in" && newerWeekOut(saved.fuel))) refreshDiesel();
@@ -200,6 +214,19 @@ export function useSidebar() {
   const loadSample = useCallback(async () => {
     applyEmail(await (await fetch(chrome.runtime.getURL("sample/email-sample.txt"))).text(), "sample email");
   }, [applyEmail]);
+
+  useEffect(() => {
+    if (!email.text) return;
+    chrome.storage.session.set({
+      lastQuote: {
+        text: email.text,
+        source: email.source,
+        lane,
+        miles: { value: miles.value, source: miles.source, precision: miles.precision ?? null },
+        overrides: [...overrides],
+      },
+    });
+  }, [email.text, email.source, lane, miles.value, miles.source, miles.precision, overrides]);
 
   // ---------- quote ----------
 
