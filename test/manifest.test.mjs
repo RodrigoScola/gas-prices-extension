@@ -88,3 +88,8 @@ test("the build puts everything the manifest needs in dist/", { skip: existsSync
     }
   }
 });
+
+test("Alt+Shift+Q opens the sidebar (the toolbar action opens the panel)", () => {
+  assert.equal(manifest.commands._execute_action.suggested_key.default, "Alt+Shift+Q");
+  assert.match(readFileSync(at("background.js"), "utf8"), /openPanelOnActionClick: true/);
+});

@@ -285,3 +285,18 @@ describe("robustness", () => {
     assert.equal(d.destination.city, "Fort Worth");
   });
 });
+
+describe("forwarded and quoted emails", () => {
+  test("a plain-text reply with > quote markers parses like the original", () => {
+    const quoted = read("../sample/email-sample.txt").split("\n").map((l) => "> " + l).join("\n");
+    const d = parse("On Mon, Oct 12, 2026 at 9:00 AM Sam Sender wrote:\n" + quoted);
+    assert.deepEqual(cityOf(d.destination), { city: "Fort Worth", state: "TX", zip: "76111" });
+    assert.equal(d.origin.city, "Grand Prairie");
+    assert.equal(d.weight, 2150);
+  });
+  test("nested quotes (>>) too", () => {
+    const d = parse(">> Pickup: Memphis, TN 38103\n>> Deliver to: Columbus, OH 43215");
+    assert.equal(d.origin.city, "Memphis");
+    assert.equal(d.destination.city, "Columbus");
+  });
+});

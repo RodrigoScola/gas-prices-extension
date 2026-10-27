@@ -8,6 +8,10 @@ import { matchEquipment } from "../../lib/rates.js";
 import { fetchDieselPricePublic, isStale } from "../../lib/fuel.js";
 import { laneMiles, addressText } from "../../lib/miles.js";
 import { computeQuote, parsePlace, placeText } from "../../lib/quote.js";
+import { addToHistory, emailKey } from "../../lib/history.js";
+
+const MILES_CACHE_MAX = 300;
+const DIESEL_CHECK_MS = 60 * 60 * 1000; // a sidebar left open for days still picks up Wednesday's price
 
 const store = chrome.storage.local;
 
@@ -24,6 +28,7 @@ export function useSidebar() {
   const [miles, setMiles] = useState({ value: "", source: null, precision: null, busy: false, error: null });
   const [diesel, setDiesel] = useState({ value: "", fuel: null, error: null, busy: false });
   const [overrides, setOverrides] = useState(new Map());
+  const [history, setHistory] = useState([]);
   const milesCache = useRef({});
   const emailText = useRef(null);
   const sheetsRef = useRef(sheets);
@@ -60,7 +65,7 @@ export function useSidebar() {
       if (run !== readRun.current) return;
       if (result?.text) return applyEmail(result.text, result.source);
       // Gmail fills the message in after the URL changes, so retry an empty read a few times.
-      if (result?.source === "no open email" && attempt < 4) return setTimeout(() => readActiveTab(attempt + 1), 700);
+      if (result?.source === "no open email" && attempt < 6) return setTimeout(() => readActiveTab(attempt + 1), 700);
       noEmail("Open a shipping email in Gmail. You can also select an email's text, right-click, and pick “Quote this shipment”.");
     } catch {
       // Pages Chrome won't let extensions read (new tab, chrome://, the Web Store).
@@ -70,15 +75,29 @@ export function useSidebar() {
 
   // The last quote, edits included, survives the sidebar closing or reloading (until Chrome
   // restarts: storage.session).
-  const restoreLastQuote = useCallback(async () => {
-    const { lastQuote: q } = await chrome.storage.session.get("lastQuote");
-    if (!q?.text) return;
+  const applySnapshot = useCallback((q) => {
     emailText.current = q.text;
     setEmail({ text: q.text, source: q.source, details: parseEmail(q.text), note: null });
     setLane(q.lane);
     setMiles({ ...q.miles, busy: false, error: null });
     setOverrides(new Map(q.overrides));
   }, []);
+
+  const restoreLastQuote = useCallback(async () => {
+    const { lastQuote: q } = await chrome.storage.session.get("lastQuote");
+    if (q?.text) applySnapshot(q);
+  }, [applySnapshot]);
+
+  // Start over: forget the current quote. The open Gmail email is read again from scratch.
+  const startOver = useCallback(async () => {
+    emailText.current = null;
+    setEmail({ text: null, source: null, details: null, note: null });
+    setLane((l) => ({ origin: "", destination: "", equipment: l.equipment, equipmentFromEmail: false }));
+    setMiles({ value: "", source: null, precision: null, busy: false, error: null });
+    setOverrides(new Map());
+    await chrome.storage.session.remove("lastQuote");
+    readActiveTab();
+  }, [readActiveTab]);
 
   const takePending = useCallback(async () => {
     const { pendingEmail } = await chrome.storage.session.get("pendingEmail");
@@ -137,8 +156,9 @@ export function useSidebar() {
     chrome.storage.onChanged.addListener(onLocal);
 
     (async () => {
-      const saved = await store.get(["fuel", "milesCache"]);
+      const saved = await store.get(["fuel", "milesCache", "history"]);
       milesCache.current = saved.milesCache || {};
+      setHistory(saved.history || []);
       if (saved.fuel) setDiesel({ value: String(saved.fuel.price), fuel: saved.fuel, error: null, busy: false });
       const loaded = await loadSheets();
       setSheets({ ...loaded, loaded: true });
@@ -149,13 +169,19 @@ export function useSidebar() {
       if (!saved.fuel || isStale(saved.fuel) || (saved.fuel.source !== "typed in" && newerWeekOut(saved.fuel))) refreshDiesel();
     })();
 
+    const dieselTimer = setInterval(async () => {
+      const { fuel } = await store.get("fuel");
+      if (!fuel || isStale(fuel) || (fuel.source !== "typed in" && newerWeekOut(fuel))) refreshDiesel();
+    }, DIESEL_CHECK_MS);
+
     return () => {
+      clearInterval(dieselTimer);
       chrome.tabs.onActivated.removeListener(readSoon);
       chrome.tabs.onUpdated.removeListener(onUpdated);
       chrome.storage.session.onChanged.removeListener(onSession);
       chrome.storage.onChanged.removeListener(onLocal);
     };
-  }, [readActiveTab, takePending, refreshDiesel]);
+  }, [readActiveTab, takePending, refreshDiesel, restoreLastQuote]);
 
   // The equipment list can arrive after the email (sheets still loading).
   useEffect(() => {
@@ -192,6 +218,8 @@ export function useSidebar() {
         const r = await laneMiles(o, d);
         if (run !== milesRun.current) return; // a newer lookup started
         milesCache.current[key] = r;
+        const keys = Object.keys(milesCache.current);
+        for (const k of keys.slice(0, Math.max(0, keys.length - MILES_CACHE_MAX))) delete milesCache.current[k]; // oldest first
         store.set({ milesCache: milesCache.current });
         setMiles({ value: String(r.miles), source: "route", precision: r.precision, busy: false, error: null });
       } catch (err) {
@@ -246,9 +274,46 @@ export function useSidebar() {
     overrides,
   }), [sheets, email.details, lane, miles, diesel, overrides]);
 
+  // Every complete quote goes into the history (one entry per email, updated as it changes).
+  useEffect(() => {
+    if (!quote.complete || !email.text) return;
+    let saved = false;
+    const save = async () => {
+      saved = true;
+      const entry = {
+        key: emailKey(email.text),
+        reference: email.details?.reference || null,
+        origin: lane.origin,
+        destination: lane.destination,
+        equipment: lane.equipment,
+        total: quote.total,
+        at: new Date().toISOString(),
+        snapshot: { text: email.text, source: email.source, lane, miles: { value: miles.value, source: miles.source, precision: miles.precision ?? null }, overrides: [...overrides] },
+      };
+      const { history: list } = await store.get("history");
+      const next = addToHistory(list, entry);
+      await store.set({ history: next });
+      setHistory(next);
+    };
+    // Wait for typing to settle, but if the broker moves to another email first, save right away.
+    const text = email.text;
+    const timer = setTimeout(save, 800);
+    return () => {
+      clearTimeout(timer);
+      if (!saved && emailText.current !== text) save();
+    };
+  }, [quote.complete, quote.total, email.text, email.source, email.details, lane, miles.value, miles.source, miles.precision, overrides]);
+
+  const openFromHistory = useCallback((entry) => applySnapshot(entry.snapshot), [applySnapshot]);
+  const clearHistory = useCallback(async () => {
+    await store.remove("history");
+    setHistory([]);
+  }, []);
+
   return {
-    sheets, email, lane, miles, diesel, quote,
+    sheets, email, lane, miles, diesel, quote, history,
     setLaneField, typeMiles, typeDiesel, toggleAccessorial, loadSample, applyEmail,
+    startOver, refreshDiesel, openFromHistory, clearHistory,
     equipmentTypes: sheets.rateSheet?.equipmentTypes || [],
   };
 }

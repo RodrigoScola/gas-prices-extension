@@ -44,7 +44,9 @@ const check = (name, fn) => {
 
 const proc = spawn(chrome, [
   `--user-data-dir=${profile}`, "--remote-debugging-pipe", "--enable-unsafe-extension-debugging",
-  "--no-first-run", "--no-default-browser-check", "about:blank",
+  "--no-first-run", "--no-default-browser-check",
+  "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
+  "about:blank",
 ], { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] });
 const toChrome = proc.stdio[3], fromChrome = proc.stdio[4];
 let buf = "", nextId = 1;
@@ -63,9 +65,14 @@ fromChrome.on("data", (d) => {
     } else if (msg.method) listeners.forEach((l) => l(msg));
   }
 });
+// Every DevTools call gets a deadline, so a stuck call fails the run instead of hanging it.
 const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
   const id = nextId++;
-  pending.set(id, { resolve, reject });
+  const timer = setTimeout(() => {
+    pending.delete(id);
+    reject(new Error(`${method} timed out`));
+  }, 30000);
+  pending.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); } });
   toChrome.write(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }) + "\0");
 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -81,10 +88,17 @@ async function evalIn(sessionId, expression) {
   if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
   return r.result.value;
 }
+// The sidebar page is usually a background tab here (Gmail is in front), and screenshots of
+// background tabs can stall; Chrome is started with background throttling off for that.
+// A screenshot that still fails is reported but doesn't stop the run.
 async function shot(sessionId, name) {
-  await send("Emulation.setDeviceMetricsOverride", { width: 400, height: 1500, deviceScaleFactor: 1, mobile: false }, sessionId);
-  const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true }, sessionId);
-  writeFileSync(path.join(outDir, name), Buffer.from(data, "base64"));
+  try {
+    await send("Emulation.setDeviceMetricsOverride", { width: 400, height: 1500, deviceScaleFactor: 1, mobile: false }, sessionId);
+    const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true }, sessionId);
+    writeFileSync(path.join(outDir, name), Buffer.from(data, "base64"));
+  } catch (err) {
+    console.log(`     (screenshot ${name} skipped: ${err.message})`);
+  }
 }
 // Wait until a condition on the sidebar holds (network lookups take a few seconds).
 async function waitFor(fn, what, ms = 20000) {
@@ -218,6 +232,21 @@ try {
   });
   await shot(panel.sessionId, "email-2.png");
 
+  // Reply to the customer.
+  await P(`document.getElementById("openReply").click()`);
+  await sleep(600);
+  const replyText = await P(`document.getElementById("replyText")?.value || ""`);
+  check("reply to the customer: greeting, reference, lane and all-in total", () => {
+    assert.match(replyText, /^Hi Albert,/);
+    assert.match(replyText, /Here's our rate for 3010759748-41K\/42K\/43K\/44K:/);
+    assert.match(replyText, /Grand Prairie, TX → Itasca, IL/);
+    assert.match(replyText, /Dry van · \d{3,4} miles · 7,200 lbs · 4 pcs/);
+    assert.match(replyText, /All-in total\s+\$[\d,]+\.\d\d/);
+  });
+  await shot(panel.sessionId, "reply.png");
+  await P(`[...document.querySelectorAll(".MuiDialog-root button")].find(b => b.textContent === "Close").click()`);
+  await sleep(500);
+
   // Switch to a non-Gmail tab that has shipping-looking text: nothing is read, the quote stays.
   const { targetId: xTarget } = await send("Target.createTarget", { url: "about:blank" });
   const { sessionId: x } = await send("Target.attachToTarget", { targetId: xTarget, flatten: true });
@@ -290,6 +319,36 @@ try {
   await sleep(800);
   s = await dump();
   check("a lane that isn't in the sheet is named in the problems", () => assert.ok(s.problems.some((p) => /^Rate sheet: no lane for Laredo, TX → Honolulu, HI/.test(p)), s.problems.join(" / ")));
+
+  // Recent quotes: both real emails were complete, so both are there; opening one restores it.
+  await P(`document.getElementById("openHistory").click()`);
+  await sleep(600);
+  const hist = await P(`[...document.querySelectorAll("#historyList .MuiListItemButton-root")].map(li => li.textContent)`);
+  check("recent quotes lists every finished quote, newest first", () => {
+    // (The right-click Laredo load is only complete for a moment before the test breaks its lane,
+    // so it may or may not have been saved.)
+    const itasca = hist.findIndex((h) => /Itasca, IL.*3010759748/.test(h));
+    const fortWorth = hist.findIndex((h) => /Grand Prairie, TX → Fort Worth, TX.*3011526620-23K/.test(h));
+    assert.ok(itasca >= 0 && fortWorth >= 0, hist.join(" / "));
+    assert.ok(itasca < fortWorth, "newest first");
+    assert.ok(hist.length <= 3);
+  });
+  await shot(panel.sessionId, "history.png");
+  await P(`[...document.querySelectorAll("#historyList .MuiListItemButton-root")].find(li => /3011526620-23K/.test(li.textContent)).click()`);
+  await sleep(800);
+  s = await dump();
+  check("opening a recent quote brings it back", () => {
+    assert.match(s.details, /Reference: 3011526620-23K/);
+    assert.equal(s.lane, "Lane matched city to city: minimum $500.00.");
+  });
+
+  // Start over reads the open Gmail email again from scratch.
+  await send("Target.activateTarget", { targetId: gTarget });
+  await sleep(1500);
+  await P(`document.getElementById("startOver").click()`);
+  await waitFor(async () => /Itasca/.test((await dump()).details), "start over to re-read Gmail");
+  s = await dump();
+  check("start over re-reads the open Gmail email", () => assert.match(s.details, /Delivery: Itasca, IL 60143/));
 
   // A wide sidebar: the cards stretch to its full width instead of centering.
   await send("Emulation.setDeviceMetricsOverride", { width: 1100, height: 900, deviceScaleFactor: 1, mobile: false }, panel.sessionId);

@@ -1,8 +1,15 @@
 import { useState } from "react";
 import {
   Alert, AlertTitle, Avatar, Box, Button, Card, CardContent, CardHeader, Checkbox, Chip, CircularProgress, Collapse,
-  Divider, IconButton, InputAdornment, Stack, TextField, Tooltip, Typography,
+  Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, InputAdornment, List, ListItemButton,
+  ListItemText, Snackbar, Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
+import HistoryOutlined from "@mui/icons-material/HistoryOutlined";
+import RestartAltOutlined from "@mui/icons-material/RestartAltOutlined";
+import ReplyOutlined from "@mui/icons-material/ReplyOutlined";
+import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
+import { buildReply, quoteText } from "../../lib/reply.js";
+import { ago } from "../../lib/history.js";
 import LocalShippingOutlined from "@mui/icons-material/LocalShippingOutlined";
 import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
 import MailOutlined from "@mui/icons-material/MailOutlined";
@@ -53,16 +60,28 @@ function Section({ icon: Icon, title, action, children }) {
   );
 }
 
-function Header({ reference }) {
+function Header({ reference, onHistory, onStartOver, canStartOver }) {
   return (
-    <Stack direction="row" spacing={1.25} sx={{ px: 0.5, pb: 1.5, alignItems: "center" }}>
-      <Avatar variant="rounded" sx={{ bgcolor: "primary.main", width: 34, height: 34 }}>
+    <Stack direction="row" spacing={0.5} sx={{ px: 0.5, pb: 1.5, alignItems: "center" }}>
+      <Avatar variant="rounded" sx={{ bgcolor: "primary.main", width: 34, height: 34, mr: 0.75 }}>
         <LocalShippingOutlined fontSize="small" />
       </Avatar>
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography variant="h6" sx={{ lineHeight: 1.2 }}>Shipment quote</Typography>
         <Typography variant="caption" color="text.secondary" noWrap component="div">{reference || "Siemens FTL"}</Typography>
       </Box>
+      <Tooltip title="Start over (reads the open email again)">
+        <span>
+          <IconButton id="startOver" size="small" aria-label="Start over" onClick={onStartOver} disabled={!canStartOver}>
+            <RestartAltOutlined fontSize="small" />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip title="Recent quotes">
+        <IconButton id="openHistory" size="small" aria-label="Recent quotes" onClick={onHistory}>
+          <HistoryOutlined fontSize="small" />
+        </IconButton>
+      </Tooltip>
       <ColorModeButton />
       <Tooltip title="Data & settings">
         <IconButton id="openSettings" size="small" aria-label="Data & settings" onClick={() => chrome.runtime.openOptionsPage()}>
@@ -73,14 +92,66 @@ function Header({ reference }) {
   );
 }
 
-function QuoteCard({ quote }) {
-  const [copied, setCopied] = useState(false);
+async function copyText(text, notify) {
+  try {
+    await navigator.clipboard.writeText(text);
+    notify("Copied");
+  } catch {
+    notify("Couldn't copy. Select the text and press Ctrl+C.");
+  }
+}
+
+// The reply to the customer, editable before copying.
+function ReplyDialog({ open, onClose, initial, notify }) {
+  const [text, setText] = useState(initial);
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" slotProps={{ transition: { onEnter: () => setText(initial) } }}>
+      <DialogTitle sx={{ pb: 1 }}>Reply to the customer</DialogTitle>
+      <DialogContent>
+        <TextField
+          id="replyText" multiline minRows={12} value={text} onChange={(e) => setText(e.target.value)}
+          slotProps={{ htmlInput: { style: { fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12.5, lineHeight: 1.5 } } }}
+        />
+        <Typography variant="caption" color="text.secondary">Edit it here if you like, then paste it into your Gmail reply.</Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+        <Button id="copyReply" variant="contained" startIcon={<ContentCopyOutlined />} onClick={() => { copyText(text, notify); onClose(); }}>Copy reply</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function HistoryDialog({ open, onClose, history, onPick, onClear }) {
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle sx={{ pb: 0.5 }}>Recent quotes</DialogTitle>
+      <DialogContent sx={{ px: 1 }}>
+        {history.length === 0 && <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1 }}>Finished quotes show up here.</Typography>}
+        <List dense id="historyList">
+          {history.map((h) => (
+            <ListItemButton key={h.key} onClick={() => { onPick(h); onClose(); }} sx={{ borderRadius: 1.5 }}>
+              <ListItemText
+                primary={`${h.origin} → ${h.destination}`}
+                secondary={[h.reference, shortEquipment(h.equipment || ""), ago(h.at)].filter(Boolean).join(" · ")}
+                slotProps={{ primary: { noWrap: true }, secondary: { noWrap: true } }}
+              />
+              <Typography variant="body2" sx={{ fontWeight: 700, ml: 1, fontVariantNumeric: "tabular-nums" }}>{money(h.total)}</Typography>
+            </ListItemButton>
+          ))}
+        </List>
+      </DialogContent>
+      <DialogActions>
+        {history.length > 0 && <Button color="inherit" onClick={onClear} sx={{ mr: "auto" }}>Clear</Button>}
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function QuoteCard({ quote, onReply, notify }) {
   const rows = quote.lines.slice(0, -1);
-  const copy = async () => {
-    await navigator.clipboard.writeText(quote.lines.map(([l, v]) => `${l}: ${v}`).join("\n"));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  const copy = () => copyText(quoteText(quote), notify);
   return (
     <Card id="quote" sx={{ borderColor: quote.complete ? "success.main" : "divider", borderWidth: quote.complete ? 1.5 : 1 }}>
       <CardContent sx={{ pt: 1.75 }}>
@@ -95,8 +166,8 @@ function QuoteCard({ quote }) {
             {quote.complete
               ? <Chip size="small" color="success" icon={<CheckCircleOutline />} label="Ready" />
               : <Chip size="small" color="warning" icon={<ErrorOutline />} label={`${quote.problems.length} to fix`} />}
-            <Tooltip title={copied ? "Copied" : "Copy the quote"}>
-              <span><IconButton size="small" aria-label="Copy the quote" onClick={copy} disabled={!rows.length}><ContentCopyOutlined fontSize="inherit" /></IconButton></span>
+            <Tooltip title="Copy the quote lines">
+              <span><IconButton id="copyQuote" size="small" aria-label="Copy the quote" onClick={copy} disabled={!rows.length}><ContentCopyOutlined fontSize="inherit" /></IconButton></span>
             </Tooltip>
           </Stack>
         </Stack>
@@ -108,6 +179,12 @@ function QuoteCard({ quote }) {
             <Typography key={`${label}-d`} component="dd" variant="body2" sx={{ m: 0, textAlign: "right", fontVariantNumeric: "tabular-nums", ...(cls ? { display: "none" } : null) }}>{value}</Typography>,
           ])}
         </Box>
+
+        {quote.complete && (
+          <Button id="openReply" fullWidth variant="contained" startIcon={<ReplyOutlined />} onClick={onReply} sx={{ mt: 1.5 }}>
+            Reply to the customer
+          </Button>
+        )}
 
         <Box id="problems" hidden={quote.complete} sx={{ mt: 1.5 }}>
           <Alert severity="warning" variant="outlined" icon={<ErrorOutline fontSize="small" />}>
@@ -210,7 +287,7 @@ function LaneCard({ lane, miles, quote, equipmentTypes, setLaneField, typeMiles 
   );
 }
 
-function FuelCard({ diesel, quote, typeDiesel }) {
+function FuelCard({ diesel, quote, typeDiesel, refreshDiesel }) {
   const text = quote.fuel ? quote.fuel.text : diesel.error ? "" : "Getting this week's diesel price from EIA…";
   return (
     <Section icon={LocalGasStationOutlined} title="Fuel surcharge" action={quote.fuel && <Chip size="small" color="secondary" label={`${money(quote.fuel.perMile)}/mi`} />}>
@@ -227,6 +304,11 @@ function FuelCard({ diesel, quote, typeDiesel }) {
         />
         <Typography id="fuelResult" variant="caption" color={quote.fuel?.stale ? "warning.main" : "text.secondary"}>{text}</Typography>
       </Stack>
+      {(diesel.error || quote.fuel?.stale) && (
+        <Button id="retryDiesel" size="small" startIcon={<RefreshOutlined />} onClick={refreshDiesel} disabled={diesel.busy} sx={{ mt: 1, ml: -0.75 }}>
+          {diesel.error ? "Try EIA again" : "Get this week's price"}
+        </Button>
+      )}
     </Section>
   );
 }
@@ -278,16 +360,28 @@ function AccessorialsCard({ quote, toggleAccessorial }) {
 
 export default function App() {
   const s = useSidebar();
+  const [toast, setToast] = useState(null);
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const reply = s.quote.complete
+    ? buildReply({ details: s.email.details, quote: s.quote, lane: s.lane, miles: s.miles.value, equipmentLabel: shortEquipment(s.lane.equipment) })
+    : "";
   return (
     <Box id="sidebar" sx={{ p: 1.5 }}>
-      <Header reference={s.email.details?.reference} />
+      <Header reference={s.email.details?.reference} onHistory={() => setHistoryOpen(true)} onStartOver={s.startOver} canStartOver={!!s.email.text} />
       <Stack spacing={1.25}>
-        <QuoteCard quote={s.quote} />
+        <QuoteCard quote={s.quote} onReply={() => setReplyOpen(true)} notify={setToast} />
         <EmailCard email={s.email} loadSample={s.loadSample} applyEmail={s.applyEmail} />
         <LaneCard lane={s.lane} miles={s.miles} quote={s.quote} equipmentTypes={s.equipmentTypes} setLaneField={s.setLaneField} typeMiles={s.typeMiles} />
-        <FuelCard diesel={s.diesel} quote={s.quote} typeDiesel={s.typeDiesel} />
+        <FuelCard diesel={s.diesel} quote={s.quote} typeDiesel={s.typeDiesel} refreshDiesel={s.refreshDiesel} />
         <AccessorialsCard quote={s.quote} toggleAccessorial={s.toggleAccessorial} />
       </Stack>
+      <Typography variant="caption" color="text.disabled" component="div" sx={{ textAlign: "center", mt: 1.5 }}>
+        Tip: Alt+Shift+Q opens this sidebar from any tab.
+      </Typography>
+      <ReplyDialog open={replyOpen} onClose={() => setReplyOpen(false)} initial={reply} notify={setToast} />
+      <HistoryDialog open={historyOpen} onClose={() => setHistoryOpen(false)} history={s.history} onPick={s.openFromHistory} onClear={s.clearHistory} />
+      <Snackbar id="toast" open={!!toast} message={toast} autoHideDuration={2000} onClose={() => setToast(null)} anchorOrigin={{ vertical: "bottom", horizontal: "center" }} />
     </Box>
   );
 }

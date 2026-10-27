@@ -51,3 +51,13 @@ test("invalid times aren't read as times", () => {
   assert.equal(parseDateTime("25:00", NOW), null);
   assert.equal(parseDateTime("10:75", NOW), null);
 });
+
+test("a date without a year is the next one coming up", () => {
+  const lateDec = new Date(2026, 11, 28);
+  assert.equal(ymd(parseDateTime("1/5", lateDec)), "2027-1-5", "early January seen in late December");
+  assert.equal(ymd(parseDateTime("Jan 5", lateDec)), "2027-1-5");
+  assert.equal(ymd(parseDateTime("12/20", lateDec)), "2026-12-20", "a few days back stays this year");
+  assert.equal(ymd(parseDateTime("11/1", lateDec)), "2026-11-1", "under 60 days back stays this year");
+  assert.equal(ymd(parseDateTime("10/14", new Date(2026, 9, 23))), "2026-10-14");
+  assert.equal(ymd(parseDateTime("1/5/2026", lateDec)), "2026-1-5", "an explicit year is kept");
+});
