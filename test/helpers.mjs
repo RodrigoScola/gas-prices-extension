@@ -1,6 +1,7 @@
 // Shared test helpers: fixtures, a tiny .xlsx builder, a fake chrome.* and a fake fetch.
 import { readFileSync, existsSync } from "node:fs";
 import { deflateRawSync } from "node:zlib";
+import { parseFuelScale } from "../lib/fuel.js";
 
 export const file = (p) => new URL(`./${p}`, import.meta.url);
 export const read = (p) => readFileSync(file(p), "utf8");
@@ -16,7 +17,17 @@ export const PRIVATE = {
   email1Subject: "../private/email-real-1-with-subject.txt",
   email2: "../private/email-real-2.txt",
   fscScale: "../private/fsc-scale.txt",
+  fuelScale: "../private/Siemens FTL Fuel Surcharge Scale 2026.xlsx",
 };
+
+// The Siemens fuel surcharge scale as rows of the .xlsx: $0.01 at $1.150-$1.199, +$0.01 per $0.05,
+// and $1.28 from $7.500 up (no "To" on that last row).
+export const SCALE_ROWS = [
+  ["Diesel From", "Diesel To", "Surcharge Per Mile"],
+  ...Array.from({ length: 127 }, (_, i) => [(1.15 + 0.05 * i).toFixed(3), (1.199 + 0.05 * i).toFixed(3), ((i + 1) / 100).toFixed(2)]),
+  ["7.500", "", "1.28"],
+];
+export const fuelScale = { brackets: parseFuelScale(SCALE_ROWS) };
 export const skipUnless = (...paths) => (paths.every(exists) ? false : "client data not in private/");
 
 // ---------- .xlsx builder ----------

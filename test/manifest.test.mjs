@@ -21,7 +21,7 @@ test("Manifest V3 with the side panel, options page, background worker and icons
 });
 
 test("permissions it uses, and nothing broader", () => {
-  assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "contextMenus", "scripting", "sidePanel", "storage"]);
+  assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "scripting", "sidePanel", "storage"]);
   for (const h of manifest.host_permissions) assert.doesNotMatch(h, /<all_urls>|^\*:\/\/\*\//);
 });
 

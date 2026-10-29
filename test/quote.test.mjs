@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { computeQuote, parsePlace, money } from "../lib/quote.js";
 import { parseRateSheet, parseTempSurcharges } from "../lib/rates.js";
 import { parseEmail } from "../lib/email.js";
-import { read } from "./helpers.mjs";
+import { read, fuelScale } from "./helpers.mjs";
 
 const NOW = new Date(2026, 9, 23);
 const DV = "Dry van/tractor trailer";
@@ -20,7 +20,7 @@ const fuel = { price: 6.276, week: "2026-10-19", source: "EIA weekly page" };
 const email = parseEmail(read("../sample/email-sample.txt"), NOW); // Grand Prairie -> Fort Worth, van
 
 const base = (over = {}) => ({
-  rateSheet, tempSurcharges, details: email, originText: "Grand Prairie, TX", destText: "Fort Worth, TX",
+  rateSheet, tempSurcharges, fuelScale, details: email, originText: "Grand Prairie, TX", destText: "Fort Worth, TX",
   equipment: DV, equipmentFromEmail: true, miles: 20, milesStatus: { fromRoute: true }, diesel: 6.276, fuel, now: NOW, ...over,
 });
 const line = (q, label) => q.lines.find(([l]) => l.startsWith(label))?.[1];
@@ -101,6 +101,13 @@ describe("incomplete quotes say what's missing", () => {
     const q = computeQuote(base({ rateSheet: null }));
     assert.deepEqual(where(q.problems), ["Rate sheet"]);
     assert.match(q.problems[0][1], /Data & settings/);
+  });
+
+  test("no fuel scale: fuel is a problem, not a silent $0", () => {
+    const q = computeQuote(base({ fuelScale: null }));
+    assert.deepEqual(where(q.problems), ["Fuel scale"]);
+    assert.match(q.problems[0][1], /Data & settings/);
+    assert.equal(line(q, "Fuel"), undefined);
   });
 
   test("no lane, even at state level", () => {

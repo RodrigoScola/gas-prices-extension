@@ -9,7 +9,6 @@ async function loadBackground() {
   const listeners = {};
   const on = (name) => ({ addListener: (fn) => { listeners[name] = fn; } });
   chrome.runtime.onInstalled = on("installed");
-  chrome.contextMenus = { create: (x) => calls.push(["menu", x]), onClicked: on("clicked") };
   chrome.sidePanel = {
     setPanelBehavior: (x) => calls.push(["behavior", x]),
     open: (x) => calls.push(["open", x]),
@@ -21,27 +20,8 @@ async function loadBackground() {
   return { chrome, calls, listeners };
 }
 
-test("install: the toolbar icon opens the panel, and the right-click item is added", async () => {
+test("install: the toolbar icon opens the panel", async () => {
   const { calls, listeners } = await loadBackground();
   listeners.installed();
-  assert.deepEqual(calls, [
-    ["behavior", { openPanelOnActionClick: true }],
-    ["menu", { id: "quote-selection", title: "Quote this shipment", contexts: ["selection"] }],
-  ]);
-});
-
-test("right-click: opens the panel first (needs the click), then hands it the text", async () => {
-  const { calls, listeners, chrome } = await loadBackground();
-  listeners.clicked({ menuItemId: "quote-selection", selectionText: "Pickup: Dallas, TX" }, { windowId: 7 });
-  assert.deepEqual(calls[0], ["open", { windowId: 7 }]);
-  assert.equal(calls[1][0], "store");
-  const { pendingEmail } = await chrome.storage.session.get("pendingEmail");
-  assert.equal(pendingEmail.text, "Pickup: Dallas, TX");
-  assert.ok(Date.now() - pendingEmail.at < 5000);
-});
-
-test("other menu items are ignored", async () => {
-  const { calls, listeners } = await loadBackground();
-  listeners.clicked({ menuItemId: "something-else", selectionText: "x" }, { windowId: 1 });
-  assert.deepEqual(calls, []);
+  assert.deepEqual(calls, [["behavior", { openPanelOnActionClick: true }]]);
 });

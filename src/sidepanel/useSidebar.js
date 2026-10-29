@@ -22,7 +22,7 @@ function newerWeekOut(fuel) {
 }
 
 export function useSidebar() {
-  const [sheets, setSheets] = useState({ rateSheet: null, tempSurcharges: null, loaded: false });
+  const [sheets, setSheets] = useState({ rateSheet: null, tempSurcharges: null, fuelScale: null, loaded: false });
   const [email, setEmail] = useState({ text: null, source: null, details: null, note: null });
   const [lane, setLane] = useState({ origin: "", destination: "", equipment: "", equipmentFromEmail: false });
   const [miles, setMiles] = useState({ value: "", source: null, precision: null, busy: false, error: null });
@@ -66,7 +66,7 @@ export function useSidebar() {
       if (result?.text) return applyEmail(result.text, result.source);
       // Gmail fills the message in after the URL changes, so retry an empty read a few times.
       if (result?.source === "no open email" && attempt < 6) return setTimeout(() => readActiveTab(attempt + 1), 700);
-      noEmail("Open a shipping email in Gmail. You can also select an email's text, right-click, and pick “Quote this shipment”.");
+      noEmail("Open a shipping email in Gmail to quote it.");
     } catch {
       // Pages Chrome won't let extensions read (new tab, chrome://, the Web Store).
       if (run === readRun.current) noEmail("Open a shipping email in Gmail to quote it.");
@@ -98,14 +98,6 @@ export function useSidebar() {
     await chrome.storage.session.remove("lastQuote");
     readActiveTab();
   }, [readActiveTab]);
-
-  const takePending = useCallback(async () => {
-    const { pendingEmail } = await chrome.storage.session.get("pendingEmail");
-    if (!pendingEmail) return false;
-    await chrome.storage.session.remove("pendingEmail");
-    applyEmail(pendingEmail.text, "right-click selection");
-    return true;
-  }, [applyEmail]);
 
   // ---------- diesel ----------
 
@@ -139,20 +131,13 @@ export function useSidebar() {
     const onUpdated = (_id, info, tab) => {
       if (tab.active && (info.url || info.status === "complete")) readSoon();
     };
-    const onSession = (changes) => changes.pendingEmail?.newValue && takePending();
     const onLocal = (changes, area) => {
       if (area !== "local") return;
-      if ("rateSheet" in changes || "tempSurcharges" in changes) {
-        setSheets((s) => ({
-          ...s,
-          ...("rateSheet" in changes ? { rateSheet: changes.rateSheet.newValue || null } : {}),
-          ...("tempSurcharges" in changes ? { tempSurcharges: changes.tempSurcharges.newValue || null } : {}),
-        }));
-      }
+      const updated = ["rateSheet", "tempSurcharges", "fuelScale"].filter((k) => k in changes);
+      if (updated.length) setSheets((s) => ({ ...s, ...Object.fromEntries(updated.map((k) => [k, changes[k].newValue || null])) }));
     };
     chrome.tabs.onActivated.addListener(readSoon);
     chrome.tabs.onUpdated.addListener(onUpdated);
-    chrome.storage.session.onChanged.addListener(onSession);
     chrome.storage.onChanged.addListener(onLocal);
 
     (async () => {
@@ -164,7 +149,7 @@ export function useSidebar() {
       setSheets({ ...loaded, loaded: true });
       sheetsRef.current = { ...loaded, loaded: true };
       await restoreLastQuote();
-      if (!(await takePending())) readActiveTab();
+      readActiveTab();
       // A typed-in price stays until it's a week old; an EIA price refreshes when the next week is out.
       if (!saved.fuel || isStale(saved.fuel) || (saved.fuel.source !== "typed in" && newerWeekOut(saved.fuel))) refreshDiesel();
     })();
@@ -178,10 +163,9 @@ export function useSidebar() {
       clearInterval(dieselTimer);
       chrome.tabs.onActivated.removeListener(readSoon);
       chrome.tabs.onUpdated.removeListener(onUpdated);
-      chrome.storage.session.onChanged.removeListener(onSession);
       chrome.storage.onChanged.removeListener(onLocal);
     };
-  }, [readActiveTab, takePending, refreshDiesel, restoreLastQuote]);
+  }, [readActiveTab, refreshDiesel, restoreLastQuote]);
 
   // The equipment list can arrive after the email (sheets still loading).
   useEffect(() => {
@@ -261,6 +245,7 @@ export function useSidebar() {
   const quote = useMemo(() => computeQuote({
     rateSheet: sheets.rateSheet,
     tempSurcharges: sheets.tempSurcharges,
+    fuelScale: sheets.fuelScale,
     details: email.details,
     originText: lane.origin,
     destText: lane.destination,

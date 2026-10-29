@@ -1,31 +1,56 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { fscPerMile, parseEiaHistoryPage, effectivePrice, fetchDieselPricePublic, isStale, STALE_AFTER_DAYS } from "../lib/fuel.js";
-import { read, textResponse } from "./helpers.mjs";
+import { fscPerMile, parseFuelScale, parseEiaHistoryPage, effectivePrice, fetchDieselPricePublic, isStale, STALE_AFTER_DAYS } from "../lib/fuel.js";
+import { read, textResponse, SCALE_ROWS, fuelScale } from "./helpers.mjs";
 
-describe("fuel surcharge scale", () => {
-  test("every bracket: $0.01 at $1.150, +$0.01 per $0.05, both ends of each bracket", () => {
-    for (let k = 1; k <= 127; k++) {
-      const from = 1.15 + 0.05 * (k - 1);
-      const to = from + 0.049;
-      assert.equal(fscPerMile(Number(from.toFixed(3))), k / 100, `from ${from.toFixed(3)}`);
-      assert.equal(fscPerMile(Number(to.toFixed(3))), k / 100, `to ${to.toFixed(3)}`);
+describe("fuel surcharge scale sheet", () => {
+  test("reads every bracket, the open-ended top row included", () => {
+    const b = parseFuelScale(SCALE_ROWS);
+    assert.equal(b.length, 128);
+    assert.deepEqual(b[0], { from: 1.15, to: 1.199, perMile: 0.01 });
+    assert.deepEqual(b.at(-1), { from: 7.5, to: null, perMile: 1.28 });
+  });
+
+  test("finds the header below a title, skips blank and junk rows, sorts by price", () => {
+    const b = parseFuelScale([["Truckload fuel surcharge scale"], [], ["Diesel From", "Diesel To", "Surcharge Per Mile"],
+      ["$2.000", "$2.049", "$0.18"], [" ", " ", " "], ["note", "", ""], ["1.150", "1.199", "0.01"]]);
+    assert.deepEqual(b, [{ from: 1.15, to: 1.199, perMile: 0.01 }, { from: 2, to: 2.049, perMile: 0.18 }]);
+  });
+
+  test("a sheet that isn't the fuel scale says what's wrong", () => {
+    assert.throws(() => parseFuelScale([["Lane", "Pct"]]), /Diesel From/);
+    assert.throws(() => parseFuelScale([["Diesel From", "Diesel To"]]), /perMile column/);
+    assert.throws(() => parseFuelScale([["Diesel From", "Diesel To", "Surcharge Per Mile"]]), /no price brackets/);
+  });
+});
+
+describe("fuel surcharge from the scale", () => {
+  const S = fuelScale.brackets;
+  test("every bracket: both ends give its surcharge", () => {
+    for (const { from, to, perMile } of S.slice(0, -1)) {
+      assert.equal(fscPerMile(from, S), perMile, `from ${from}`);
+      assert.equal(fscPerMile(to, S), perMile, `to ${to}`);
     }
   });
 
-  test("$7.500 and above is capped at $1.28", () => {
-    for (const p of [7.5, 7.75, 9, 25]) assert.equal(fscPerMile(p), 1.28, String(p));
+  test("$7.500 and above is the top bracket", () => {
+    for (const p of [7.5, 7.75, 9, 25]) assert.equal(fscPerMile(p, S), 1.28, String(p));
   });
 
-  test("below $1.150, zero, negative and junk give no surcharge", () => {
-    for (const p of [1.149, 1, 0, -2, NaN, Infinity, null, undefined, "3.05"]) assert.equal(fscPerMile(p), 0, String(p));
+  test("below the first bracket, zero, negative and junk give no surcharge", () => {
+    for (const p of [1.149, 1, 0, -2, NaN, Infinity, null, undefined, "3.05"]) assert.equal(fscPerMile(p, S), 0, String(p));
+  });
+
+  test("no scale loaded gives no surcharge", () => {
+    assert.equal(fscPerMile(4, null), 0);
+    assert.equal(fscPerMile(4, []), 0);
   });
 
   test("values that float math would put in the wrong bracket", () => {
-    assert.equal(fscPerMile(3.05), 0.39);
-    assert.equal(fscPerMile(1.2), 0.02);
-    assert.equal(fscPerMile(4.35), 0.65);
-    assert.equal(fscPerMile(6.276), 1.03);
+    assert.equal(fscPerMile(3.05, S), 0.39);
+    assert.equal(fscPerMile(1.2, S), 0.02);
+    assert.equal(fscPerMile(4.35, S), 0.65);
+    assert.equal(fscPerMile(6.276, S), 1.03);
   });
 });
 

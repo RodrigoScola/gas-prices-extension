@@ -3,7 +3,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readFirstSheet } from "../lib/xlsx.js";
 import { parseRateSheet, findLane, parseTempSurcharges, findTempSurcharge } from "../lib/rates.js";
-import { fscPerMile } from "../lib/fuel.js";
+import { fscPerMile, parseFuelScale } from "../lib/fuel.js";
 import { parseEmail } from "../lib/email.js";
 import { computeQuote, placeText } from "../lib/quote.js";
 import { read, readBuffer, PRIVATE, skipUnless } from "./helpers.mjs";
@@ -77,25 +77,29 @@ describe("Siemens Accepted Surcharge", { skip }, async () => {
   });
 });
 
-test("fuel scale formula matches every row of the Siemens PDF", { skip: skipUnless(PRIVATE.fscScale) }, () => {
-  const rows = [...read(PRIVATE.fscScale).matchAll(/\$(\d\.\d{3}) \$(\d\.\d{3}) \$(\d\.\d{2})/g)];
-  assert.equal(rows.length, 127);
-  for (const [, from, to, surcharge] of rows) {
-    assert.equal(fscPerMile(Number(from)), Number(surcharge), `from $${from}`);
-    assert.equal(fscPerMile(Number(to)), Number(surcharge), `to $${to}`);
+test("the fuel scale .xlsx matches every row of the Siemens PDF", { skip: skipUnless(PRIVATE.fscScale, PRIVATE.fuelScale) }, async () => {
+  const brackets = parseFuelScale(await readFirstSheet(readBuffer(PRIVATE.fuelScale)));
+  const pdf = [...read(PRIVATE.fscScale).matchAll(/\$(\d\.\d{3}) \$(\d\.\d{3}) \$(\d\.\d{2})/g)];
+  assert.equal(pdf.length, 127);
+  assert.equal(brackets.length, 128);
+  for (const [, from, to, surcharge] of pdf) {
+    assert.ok(brackets.some((b) => b.from === Number(from) && b.to === Number(to) && b.perMile === Number(surcharge)), `$${from}-$${to}`);
+    assert.equal(fscPerMile(Number(from), brackets), Number(surcharge), `from $${from}`);
+    assert.equal(fscPerMile(Number(to), brackets), Number(surcharge), `to $${to}`);
   }
   assert.match(read(PRIVATE.fscScale), /\$7\.500 & Above \$1\.28/);
-  assert.equal(fscPerMile(7.5), 1.28);
+  assert.deepEqual(brackets.at(-1), { from: 7.5, to: null, perMile: 1.28 });
 });
 
-describe("both real emails, start to finish", { skip: skipUnless(PRIVATE.rateSheet, PRIVATE.tempSheet, PRIVATE.email1Subject, PRIVATE.email2) }, async () => {
+describe("both real emails, start to finish", { skip: skipUnless(PRIVATE.rateSheet, PRIVATE.tempSheet, PRIVATE.fuelScale, PRIVATE.email1Subject, PRIVATE.email2) }, async () => {
   const rateSheet = skip ? null : parseRateSheet(await readFirstSheet(readBuffer(PRIVATE.rateSheet)));
   const tempSurcharges = skip ? null : { list: parseTempSurcharges(await readFirstSheet(readBuffer(PRIVATE.tempSheet))) };
+  const fuelScale = skip ? null : { brackets: parseFuelScale(await readFirstSheet(readBuffer(PRIVATE.fuelScale))) };
   const fuel = { price: 6.276, week: "2026-10-19", source: "EIA weekly page" };
   const quoteFor = (path, miles) => {
     const details = parseEmail(read(path), new Date(2026, 9, 23));
     return computeQuote({
-      rateSheet, tempSurcharges, details, originText: placeText(details.origin), destText: placeText(details.destination),
+      rateSheet, tempSurcharges, fuelScale, details, originText: placeText(details.origin), destText: placeText(details.destination),
       equipment: details.equipment, equipmentFromEmail: true, miles, milesStatus: { fromRoute: true }, diesel: fuel.price, fuel, now: new Date(2026, 9, 23),
     });
   };

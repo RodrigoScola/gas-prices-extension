@@ -17,7 +17,6 @@ Out of scope for now: building the load in the TMS, finding a carrier, BOLs, tra
 - **Is there a Manifest V4?** No. Manifest V3 is the latest and the only version Chrome accepts for new extensions.
 - **Can an MV3 extension read the email?** Yes. The ad-blocker change in MV3 is about blocking network requests (`webRequestBlocking` was replaced by `declarativeNetRequest`). It doesn't stop an extension from reading a page. `chrome.scripting.executeScript` runs a small function in the open Gmail or Outlook tab and returns `element.innerText`. That gives the plain text of the email, not the HTML.
 - **Is the sidebar a public API?** Yes. `chrome.sidePanel` is a stable public API since Chrome 114. This extension uses it.
-- **Right-click menu:** `chrome.contextMenus` adds "Quote this shipment" when text is selected. It opens the sidebar with that text.
 
 ## How it works (built in this repo)
 
@@ -25,8 +24,8 @@ Out of scope for now: building the load in the TMS, finding a carrier, BOLs, tra
 Gmail / Outlook tab                    Side panel (sidepanel/)
 ┌──────────────────────┐  innerText   ┌───────────────────────────────┐
 │ open email           │ ───────────▶ │ 1. parse email  (lib/email.js) │
-│ (or selected text,   │              │ 2. lane + rate  (lib/rates.js) │
-│  via right-click)    │              │ 3. fuel         (lib/fuel.js)  │
+│                      │              │ 2. lane + rate  (lib/rates.js) │
+│                      │              │ 3. fuel         (lib/fuel.js)  │
 └──────────────────────┘              │    accessorials (lib/accessorials.js)
                                       │ quote = linehaul + temp surcharge
    eia.gov weekly page ── diesel ──▶ │        + fuel + accessorials   │
@@ -37,18 +36,18 @@ Gmail / Outlook tab                    Side panel (sidepanel/)
 
 | Part | File | Status |
 |---|---|---|
-| Manifest V3 with side panel, toolbar button, right-click menu | `manifest.json`, `background.js` | Done |
+| Manifest V3 with side panel and toolbar button | `manifest.json`, `background.js` | Done |
 | Read the open email as text, with the subject (Gmail `div.a3s` + `h2.hP` first; Outlook later), selection, whole-page fallback | `lib/capture.js` | Done. Not yet tried on a live Gmail inbox |
 | Email parser: reference #, pickup, delivery, consignee, contact, weight, pieces, value, equipment, miles, dates and times, hazmat, sender | `lib/email.js` | Done for the one real sample and for labeled emails. Needs more samples |
 | .xlsx reader with no library (uses Chrome's built-in `DecompressionStream`) | `lib/xlsx.js` | Done |
 | Rate lookup in "Siemens FTL Final Bid 2026" (3,197 lanes, 4 equipment types, min charge + rate per mile) | `lib/rates.js` | Done |
 | Temporary surcharge % from "Siemens Accepted Surcharge" (city→city, city→state, "all outbound") | `lib/rates.js` | Done |
-| Fuel surcharge from the "Siemens FTL Fuel Surcharge Scale 2026" PDF, turned into a formula | `lib/fuel.js` | Done |
+| Fuel surcharge from the "Siemens FTL Fuel Surcharge Scale 2026" sheet, made from the client's PDF by `scripts/fuel-scale-pdf-to-xlsx.py` | `lib/fuel.js`, `scripts/` | Done |
 | Weekly diesel price from EIA's public weekly page (series `EMD_EPD2D_PTE_NUS_DPG`, no key), with the Wednesday rule; can be typed in by hand | `lib/fuel.js` | Done |
 | Lane miles: US Census geocoder for the street address (OpenStreetMap Nominatim for city/zip only), then OSRM driving distance, all free with no keys; saved per lane | `lib/miles.js` | Done. Car routes, not truck routes |
 | Accessorials from "FY 2025 Siemens FTL Accessorial Schedule", auto-ticked for weekend, holiday, after-hours and hazmat | `lib/accessorials.js` | Done |
 | Sidebar and settings page in React + MUI (Vite build to `dist/`), light / dark / system mode, every field editable | `src/` | Done |
-| Reads the open Gmail email by itself when the sidebar opens and whenever you switch tab or email; right-click works anywhere | `sidepanel/`, `lib/capture.js` | Done. Tested against a mock Gmail page, not a live inbox yet |
+| Reads the open Gmail email by itself when the sidebar opens and whenever you switch tab or email | `sidepanel/`, `lib/capture.js` | Done. Tested against a mock Gmail page, not a live inbox yet |
 | Rate and surcharge sheets as settings on the options page, with built-in defaults | `options/`, `lib/sheets.js` | Done |
 | Dev/production flag: the sample email and paste box only show in development | `config.js` | Done |
 | Quote problems spelled out: which part (email, pickup, delivery, rate sheet, miles, fuel) and what to do | `sidepanel/` | Done |

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Avatar, Box, Button, Card, CardContent, CardHeader, Chip, Container, Stack, Typography } from "@mui/material";
 import TableChartOutlined from "@mui/icons-material/TableChartOutlined";
 import PercentOutlined from "@mui/icons-material/PercentOutlined";
+import LocalGasStationOutlined from "@mui/icons-material/LocalGasStationOutlined";
 import UploadFileOutlined from "@mui/icons-material/UploadFileOutlined";
 import RestoreOutlined from "@mui/icons-material/RestoreOutlined";
 import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
@@ -11,11 +12,12 @@ import { ColorModeButton } from "../shared/theme.jsx";
 const SHEETS = [
   { key: "rateSheet", title: "Rate sheet", icon: TableChartOutlined, blurb: "Lanes with the minimum charge and rate per mile for each equipment type.", missing: "No rate sheet. Pick the Final Bid .xlsx." },
   { key: "tempSurcharges", title: "Temporary surcharges", icon: PercentOutlined, blurb: "Percentage added to the linehaul, by lane and equipment.", missing: "None. Quotes will leave out temporary surcharges." },
+  { key: "fuelScale", title: "Fuel surcharge scale", icon: LocalGasStationOutlined, blurb: "Surcharge per mile for each diesel price bracket.", missing: "No fuel scale. Pick the fuel surcharge scale .xlsx." },
 ];
 
 function describe(key, x, missing) {
   if (!x) return missing;
-  const count = key === "rateSheet" ? `${x.lanes.length.toLocaleString()} lanes` : `${x.list.length} surcharges`;
+  const count = key === "rateSheet" ? `${x.lanes.length.toLocaleString()} lanes` : key === "fuelScale" ? `${x.brackets.length} price brackets` : `${x.list.length} surcharges`;
   return `${x.isDefault ? "Default" : "Your file"}: ${x.fileName}, ${count}` + (x.isDefault ? "." : `, loaded ${new Date(x.loadedAt).toLocaleDateString()}.`);
 }
 

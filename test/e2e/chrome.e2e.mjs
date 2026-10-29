@@ -115,8 +115,9 @@ async function waitFor(fn, what, ms = 20000) {
 const emails = {
   one: readFileSync(path.join(repo, "private", "email-real-1.txt"), "utf8"),
   two: readFileSync(path.join(repo, "private", "email-real-2.txt"), "utf8"),
+  three: "Flatbed load, needs tarps.\nPickup: Laredo, TX 78040\nDeliver to: Fort Worth, TX 76111\nPickup date: 10/31/2026 5:00 AM\nhazmat UN1993",
 };
-const subjects = { one: "Van Load for 10/14 READY NOW 3011526620-23K", two: "Van Load for 10/14 @ READY NOW 3010759748-41K/42K/43K/44K" };
+const subjects = { one: "Van Load for 10/14 READY NOW 3011526620-23K", two: "Van Load for 10/14 @ READY NOW 3010759748-41K/42K/43K/44K", three: "Flatbed load from Laredo" };
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 const gmailPage = (which) => `<!doctype html><title>Gmail</title><div role="navigation">Inbox (12)</div>
 <h2 class="hP">${esc(subjects[which])}</h2>
@@ -293,11 +294,14 @@ try {
   s = await dump();
   check("back on the same Gmail email: edits are kept", () => assert.equal(s.miles, "950"));
 
-  // Right-click: what the context menu hands the panel.
-  await P(`chrome.storage.session.set({ pendingEmail: { text: "Flatbed load, needs tarps.\\nPickup: Laredo, TX 78040\\nDeliver to: Fort Worth, TX 76111\\nPickup date: 10/31/2026 5:00 AM\\nhazmat UN1993", at: Date.now() } })`);
-  await waitFor(async () => { const x = await dump(); return /Laredo/.test(x.details) && /Driving/.test(x.milesNote); }, "right-click miles");
+  // A third Gmail email with accessorials in it.
+  await evalIn(g, `
+    const doc = new DOMParser().parseFromString(${JSON.stringify(gmailPage("three"))}, "text/html");
+    document.querySelector("h2.hP").replaceWith(doc.querySelector("h2.hP"));
+    document.querySelector("div.a3s").replaceWith(doc.querySelector("div.a3s"));
+    location.hash = "#inbox/three";`);
+  await waitFor(async () => { const x = await dump(); return /Laredo/.test(x.details) && /Driving/.test(x.milesNote); }, "email 3 miles");
   s = await dump();
-  check("right-click selection is quoted", () => assert.equal(s.capture, "Read from: right-click selection."));
   check("accessorials detected from the email", () => {
     const on = s.accessorials.join(" | ");
     for (const want of ["Weekend pickup (pickup Saturday, 10/31)", "After-hours pickup", "Tarp (flatbed", "Hazmat (email mentions hazmat)"]) assert.ok(on.includes(want), want);
@@ -307,7 +311,7 @@ try {
     assert.equal(s.accessorialRowsShown, 5);
     assert.equal(s.accessorialToggle, true);
   });
-  await shot(panel.sessionId, "right-click.png");
+  await shot(panel.sessionId, "accessorials.png");
 
   // Typing a lane with no match spells out the problem.
   // (React inputs need the native value setter for a typed value to register.)
@@ -325,7 +329,7 @@ try {
   await sleep(600);
   const hist = await P(`[...document.querySelectorAll("#historyList .MuiListItemButton-root")].map(li => li.textContent)`);
   check("recent quotes lists every finished quote, newest first", () => {
-    // (The right-click Laredo load is only complete for a moment before the test breaks its lane,
+    // (The Laredo load is only complete for a moment before the test breaks its lane,
     // so it may or may not have been saved.)
     const itasca = hist.findIndex((h) => /Itasca, IL.*3010759748/.test(h));
     const fortWorth = hist.findIndex((h) => /Grand Prairie, TX → Fort Worth, TX.*3011526620-23K/.test(h));

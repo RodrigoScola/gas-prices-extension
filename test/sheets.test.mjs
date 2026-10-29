@@ -1,6 +1,6 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { fakeChrome, makeXlsx } from "./helpers.mjs";
+import { fakeChrome, makeXlsx, SCALE_ROWS } from "./helpers.mjs";
 
 const RATE_ROWS = [
   ["Origin City", "Origin State", "Destination City", "Destation State", "Min Charge - Dry van/tractor trailer (inclusive of air ride)", "Unit Rate - Dry van/tractor trailer (inclusive of air ride)"],
@@ -11,6 +11,7 @@ const TEMP_ROWS = [["Lane", "Equipment Type", "Pct"], ["Grand Prairie,TX-IL", "D
 const DEFAULT_FILES = {
   "private/Siemens FTL Final Bid 2026.xlsx": makeXlsx(RATE_ROWS),
   "private/Siemens Accepted Surcharge.xlsx": makeXlsx(TEMP_ROWS),
+  "private/Siemens FTL Fuel Surcharge Scale 2026.xlsx": makeXlsx(SCALE_ROWS),
 };
 
 // lib/sheets.js reads chrome.storage.local when it loads, so each test installs its own fake
@@ -27,7 +28,7 @@ const xlsxFile = (rows, name) => ({ name, arrayBuffer: async () => { const b = m
 
 beforeEach(() => { delete globalThis.chrome; });
 
-test("first run: both defaults load from private/ and are saved", async () => {
+test("first run: every default loads from private/ and are saved", async () => {
   const { loadSheets, data } = await load();
   const s = await loadSheets();
   assert.equal(s.rateSheet.isDefault, true);
@@ -38,6 +39,9 @@ test("first run: both defaults load from private/ and are saved", async () => {
   assert.equal(s.tempSurcharges.list[0].pct, 0.2);
   assert.equal(data.rateSheet.lanes.length, 2, "saved to storage");
   assert.equal(data.tempSurcharges.list.length, 1);
+  assert.equal(s.fuelScale.isDefault, true);
+  assert.equal(s.fuelScale.brackets.length, 128);
+  assert.equal(data.fuelScale.brackets.at(-1).perMile, 1.28);
 });
 
 test("no default files (a machine without private/): nothing loaded, nothing saved", async () => {
@@ -45,6 +49,7 @@ test("no default files (a machine without private/): nothing loaded, nothing sav
   const s = await loadSheets();
   assert.equal(s.rateSheet, null);
   assert.equal(s.tempSurcharges, null);
+  assert.equal(s.fuelScale, null);
   assert.deepEqual(Object.keys(data), []);
 });
 

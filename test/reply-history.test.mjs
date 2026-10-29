@@ -5,7 +5,7 @@ import { addToHistory, emailKey, ago, HISTORY_MAX } from "../lib/history.js";
 import { computeQuote } from "../lib/quote.js";
 import { parseRateSheet } from "../lib/rates.js";
 import { parseEmail } from "../lib/email.js";
-import { read } from "./helpers.mjs";
+import { read, fuelScale } from "./helpers.mjs";
 
 const NOW = new Date(2026, 9, 23);
 const rateSheet = parseRateSheet([
@@ -15,7 +15,7 @@ const rateSheet = parseRateSheet([
 const fuel = { price: 6.276, week: "2026-10-19", source: "EIA weekly page" };
 const details = parseEmail(read("../sample/email-sample.txt"), NOW);
 const lane = { origin: "Grand Prairie, TX", destination: "Fort Worth, TX", equipment: "Dry van/tractor trailer" };
-const quote = computeQuote({ rateSheet, details, originText: lane.origin, destText: lane.destination, equipment: lane.equipment, equipmentFromEmail: true, miles: 20, diesel: 6.276, fuel, now: NOW });
+const quote = computeQuote({ rateSheet, fuelScale, details, originText: lane.origin, destText: lane.destination, equipment: lane.equipment, equipmentFromEmail: true, miles: 20, diesel: 6.276, fuel, now: NOW });
 
 describe("customer reply", () => {
   const reply = buildReply({ details, quote, lane, miles: 20, equipmentLabel: "Dry van" });
