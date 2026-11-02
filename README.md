@@ -30,7 +30,7 @@ After `npm run build`, click the reload arrow on the extension's card in `chrome
 
 Open a shipping email in Gmail or Outlook on the web (work accounts on outlook.office.com / outlook.office365.com / outlook.cloud.microsoft, personal ones on outlook.live.com) with the sidebar open. It reads the email by itself, including when you switch to another email. Only Gmail and Outlook tabs are read: switching to any other tab keeps the current quote, and closing and reopening the sidebar brings it back with your edits. Miles, diesel and accessorials fill in automatically, and the total sits at the top with anything still missing listed under it. Every field can still be edited.
 
-**Additional surcharge:** off until you switch it on. Switched on, it adds the percentage the Accepted Surcharge sheet has for the lane and equipment to the linehaul. Type a percentage to use a different one (or when the sheet has nothing for the lane).
+**Temporary surcharge:** the first row under Accessorials. It is applied automatically when the client's Accepted Surcharge sheet has a percentage for the lane and equipment (added to the linehaul). Untick it to leave it off, or type a custom percentage next to it. Replace the sheet in **Data & settings** when the client sends a new one.
 
 The sun/moon button switches between system, light and dark mode.
 
@@ -55,7 +55,7 @@ Set `ENV = "development"` in [config.js](config.js) to get a sample email button
 npm test
 ```
 
-213 unit tests (Node's built-in test runner, no installs), one file per part of the extension:
+217 unit tests (Node's built-in test runner, no installs), one file per part of the extension:
 
 | File | Covers |
 |---|---|
@@ -65,7 +65,7 @@ npm test
 | `fuel.test.mjs` | Reading the fuel scale sheet, every bracket of it, the EIA page, the Wednesday rule, staleness |
 | `miles.test.mjs` | Geocoding and routing, fallbacks and failures (network mocked) |
 | `accessorials.test.mjs` | Every accessorial's detection, holidays, transit estimate, amounts |
-| `quote.test.mjs` | The whole quote: totals, the additional surcharge switch, every "incomplete" message, notes, broker overrides |
+| `quote.test.mjs` | The whole quote: totals, the temporary surcharge (automatic, untick, custom %), every "incomplete" message, notes, broker overrides |
 | `xlsx.test.mjs` | The .xlsx reader on generated workbooks |
 | `sheets.test.mjs` | Default sheets, overrides, Back to default (chrome.storage mocked) |
 | `capture.test.mjs` | Reading Gmail/Outlook/selection text from the page (DOM mocked) |
@@ -73,7 +73,7 @@ npm test
 | `manifest.test.mjs` | Manifest, permissions for every host called, files, imports and MUI icons exist, the dist/ build |
 | `real-data.test.mjs` | The real Siemens sheets, the fuel scale .xlsx checked against the PDF, and both real emails (skipped without `private/`) |
 
-End to end: builds, then drives the real sidebar in a throwaway Chrome profile with mock Gmail and Outlook (work and personal) pages, including the surcharge switch, dark mode and the settings page (needs internet and `private/`):
+End to end: builds, then drives the real sidebar in a throwaway Chrome profile with mock Gmail and Outlook (work and personal) pages, including the temporary surcharge, dark mode and the settings page (needs internet and `private/`):
 
 ```bash
 npm run test:e2e

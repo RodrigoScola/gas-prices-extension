@@ -204,26 +204,24 @@ try {
     assert.match(s.details, /Delivery: Fort Worth, TX 76111/);
     assert.match(s.details, /Equipment: Dry van\/tractor trailer/);
   });
-  check("email 1: miles from the route and a complete quote", () => {
+  check("email 1: miles from the route and a complete quote, temporary surcharge applied by itself", () => {
     assert.match(s.milesNote, /^Driving miles from the street address\.$/);
     assert.equal(s.lane, "Lane matched city to city: minimum $500.00.");
-    assert.match(s.quote, /^Linehaul \(minimum charge\): \$500\.00 \| Fuel \(\d+ mi × \$\d\.\d\d\): \$[\d.,]+ \| Total: \$[\d.,]+$/);
+    assert.match(s.quote, /^Linehaul \(minimum charge\): \$500\.00 \| Temporary surcharge 10%: \$50\.00 \| Fuel \(\d+ mi × \$\d\.\d\d\): \$[\d.,]+ \| Total: \$[\d.,]+$/);
     assert.deepEqual(s.problems, []);
-  });
-  check("additional surcharge is off until switched on, and shows the sheet's %", () => {
-    assert.equal(s.surchargeOn, false);
-    assert.match(s.surchargeNote, /^Off\. .*The surcharge sheet has 10% for this lane\./);
+    assert.equal(s.surchargeOn, true);
+    assert.equal(s.surchargeNote, "surcharge sheet: 10% for this lane");
     assert.equal(s.replyButton, false, "the reply-to-customer button is gone");
   });
 
   await P(`document.getElementById("surchargeOn").click()`);
   await sleep(400);
   s = await dump();
-  check("switching the surcharge on adds the sheet's 10% to the linehaul", () => {
-    assert.equal(s.surchargeOn, true);
-    assert.match(s.quote, /^Linehaul \(minimum charge\): \$500\.00 \| Additional surcharge 10%: \$50\.00 \| Fuel/);
-    assert.match(s.surchargeNote, /^Adds \$50\.00 \(10% of the linehaul\)\./);
+  check("unticking the temporary surcharge takes it off the quote", () => {
+    assert.equal(s.surchargeOn, false);
+    assert.match(s.quote, /^Linehaul \(minimum charge\): \$500\.00 \| Fuel/);
   });
+  await P(`document.getElementById("surchargeOn").click()`);
   await P(`(() => {
     const el = document.getElementById("surchargePct");
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, "7.5");
@@ -231,9 +229,9 @@ try {
   })()`);
   await sleep(400);
   s = await dump();
-  check("a typed percentage replaces the sheet's", () => {
-    assert.match(s.quote, /Additional surcharge 7\.5%: \$37\.50/);
-    assert.match(s.surchargeNote, /Using the percentage you typed\./);
+  check("a custom percentage replaces the sheet's", () => {
+    assert.match(s.quote, /Temporary surcharge 7\.5%: \$37\.50/);
+    assert.equal(s.surchargeNote, "custom 7.5%");
   });
   await P(`(() => {
     const el = document.getElementById("surchargePct");
@@ -241,8 +239,10 @@ try {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   })()`);
   await sleep(300);
-  check("nothing detected: all 15 accessorials are listed, no Show all button", () => {
-    assert.equal(s.accessorialRowsShown, 15);
+  s = await dump();
+  check("nothing detected: all 15 accessorials (plus the surcharge row) are listed, no Show all button", () => {
+    assert.equal(s.accessorialRowsShown, 16);
+    assert.match(s.quote, /Temporary surcharge 10%: \$50\.00/, "back to the sheet's % once the custom one is cleared");
     assert.equal(s.accessorialToggle, false);
   });
   await shot(panel.sessionId, "email-1.png");
@@ -260,17 +260,13 @@ try {
     assert.match(s.details, /Reference: 3010759748-41K\/42K\/43K\/44K/);
     assert.match(s.details, /Delivery: Itasca, IL 60143/);
   });
-  check("email 2: per-mile lane with the 20% surcharge", () => {
+  check("email 2: per-mile lane with the sheet's 20% surcharge applied by itself", () => {
     assert.equal(s.lane, "Lane matched city to city: $1.43/mile.");
-    assert.match(s.quote, /^Linehaul \(per mile\): \$[\d,.]+ \| Fuel \(\d+ mi/);
+    assert.match(s.quote, /^Linehaul \(per mile\): \$[\d,.]+ \| Temporary surcharge 20%: \$[\d,.]+ \| Fuel \(\d+ mi/);
     assert.ok(Number(s.miles) > 850 && Number(s.miles) < 1050, `miles ${s.miles}`);
     assert.deepEqual(s.problems, []);
-    assert.equal(s.surchargeOn, false, "a new email starts with the surcharge off");
+    assert.equal(s.surchargeOn, true);
   });
-  await P(`document.getElementById("surchargeOn").click()`);
-  await sleep(400);
-  s = await dump();
-  check("email 2 with the surcharge on: the sheet's 20%", () => assert.match(s.quote, /^Linehaul \(per mile\): \$[\d,.]+ \| Additional surcharge 20%: \$[\d,.]+ \| Fuel \(\d+ mi/));
   await shot(panel.sessionId, "email-2.png");
 
   // Switch to a non-Gmail tab that has shipping-looking text: nothing is read, the quote stays.
@@ -294,7 +290,7 @@ try {
   check("a tab that isn't Gmail or Outlook isn't read, and the quote stays", () => {
     assert.match(s.details, /Delivery: Itasca, IL 60143/);
     assert.doesNotMatch(s.details, /Atlanta/);
-    assert.match(s.quote, /Additional surcharge 20%/);
+    assert.match(s.quote, /Temporary surcharge 20%/);
   });
 
   // Close and reopen the sidebar (a reload): the last quote comes back, edits included.
@@ -311,7 +307,7 @@ try {
     assert.match(s.details, /Reference: 3010759748-41K\/42K\/43K\/44K/);
     assert.equal(s.miles, "950");
     assert.match(s.quote, /Fuel \(950 mi/);
-    assert.equal(s.surchargeOn, true, "the surcharge switch comes back too");
+    assert.equal(s.surchargeOn, true, "the surcharge tick comes back too");
   });
 
   // Back to Gmail on the same email: nothing changes (the typed miles are kept).
@@ -335,7 +331,7 @@ try {
     assert.match(s.quote, /Weekend pickup: \$200\.00 \| After-hours pickup: \$250\.00 \| Tarp: \$100\.00 \| Hazmat: \$50\.00/);
   });
   check("something detected: only those show, the rest behind Show all", () => {
-    assert.equal(s.accessorialRowsShown, 5);
+    assert.equal(s.accessorialRowsShown, 6, "5 detected plus the surcharge row");
     assert.equal(s.accessorialToggle, true);
   });
   await shot(panel.sessionId, "accessorials.png");
@@ -382,7 +378,8 @@ try {
   s = await dump();
   check("start over re-reads the open Gmail email", () => {
     assert.match(s.details, /Pickup: Laredo, TX 78040/);
-    assert.equal(s.surchargeOn, false, "and the surcharge switch starts off again");
+    assert.equal(s.surchargeOn, true, "the sheet's Laredo outbound flatbed surcharge applies by itself");
+    assert.equal(s.surchargeNote, "surcharge sheet: 15% for this lane");
   });
 
   // Outlook on the web: a work account (outlook.office.com) and a personal one (outlook.live.com).

@@ -28,8 +28,9 @@ export function useSidebar() {
   const [miles, setMiles] = useState({ value: "", source: null, precision: null, busy: false, error: null });
   const [diesel, setDiesel] = useState({ value: "", fuel: null, error: null, busy: false });
   const [overrides, setOverrides] = useState(new Map());
-  // Additional surcharge: off until the broker switches it on; pctText is a typed % ("" = use the sheet's).
-  const [surcharge, setSurcharge] = useState({ on: false, pctText: "" });
+  // Temporary surcharge: on = null follows the sheet (automatic), true/false is the broker's tick;
+  // pctText is a custom % ("" = use the sheet's).
+  const [surcharge, setSurcharge] = useState({ on: null, pctText: "" });
   const [history, setHistory] = useState([]);
   const milesCache = useRef({});
   const emailText = useRef(null);
@@ -53,7 +54,7 @@ export function useSidebar() {
     });
     setMiles(details.miles ? { value: String(details.miles), source: "email", busy: false, error: null } : { value: "", source: null, busy: false, error: null });
     setOverrides(new Map());
-    setSurcharge({ on: false, pctText: "" });
+    setSurcharge({ on: null, pctText: "" });
   }, []);
 
   const readRun = useRef(0);
@@ -84,7 +85,7 @@ export function useSidebar() {
     setLane(q.lane);
     setMiles({ ...q.miles, busy: false, error: null });
     setOverrides(new Map(q.overrides));
-    setSurcharge(q.surcharge || { on: false, pctText: "" });
+    setSurcharge(q.surcharge || { on: null, pctText: "" });
   }, []);
 
   const restoreLastQuote = useCallback(async () => {
@@ -99,7 +100,7 @@ export function useSidebar() {
     setLane((l) => ({ origin: "", destination: "", equipment: l.equipment, equipmentFromEmail: false }));
     setMiles({ value: "", source: null, precision: null, busy: false, error: null });
     setOverrides(new Map());
-    setSurcharge({ on: false, pctText: "" });
+    setSurcharge({ on: null, pctText: "" });
     await chrome.storage.session.remove("lastQuote");
     readActiveTab();
   }, [readActiveTab]);

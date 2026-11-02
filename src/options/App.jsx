@@ -11,7 +11,7 @@ import { ColorModeButton } from "../shared/theme.jsx";
 
 const SHEETS = [
   { key: "rateSheet", title: "Rate sheet", icon: TableChartOutlined, blurb: "Lanes with the minimum charge and rate per mile for each equipment type.", missing: "No rate sheet. Pick the Final Bid .xlsx." },
-  { key: "tempSurcharges", title: "Temporary surcharges", icon: PercentOutlined, blurb: "Percentage added to the linehaul, by lane and equipment.", missing: "None. Quotes will leave out temporary surcharges." },
+  { key: "tempSurcharges", title: "Temporary surcharges (Accepted Surcharge sheet)", icon: PercentOutlined, blurb: "Percentage added to the linehaul, by lane and equipment. Applied automatically in the sidebar's accessorials; replace the file here when the client sends a new one.", missing: "None. Quotes will leave out temporary surcharges." },
   { key: "fuelScale", title: "Fuel surcharge scale", icon: LocalGasStationOutlined, blurb: "Surcharge per mile for each diesel price bracket.", missing: "No fuel scale. Pick the fuel surcharge scale .xlsx." },
 ];
 
