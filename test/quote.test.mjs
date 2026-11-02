@@ -21,7 +21,9 @@ const email = parseEmail(read("../sample/email-sample.txt"), NOW); // Grand Prai
 
 const base = (over = {}) => ({
   rateSheet, tempSurcharges, fuelScale, details: email, originText: "Grand Prairie, TX", destText: "Fort Worth, TX",
-  equipment: DV, equipmentFromEmail: true, miles: 20, milesStatus: { fromRoute: true }, diesel: 6.276, fuel, now: NOW, ...over,
+  equipment: DV, equipmentFromEmail: true, miles: 20, milesStatus: { fromRoute: true }, diesel: 6.276, fuel, now: NOW,
+  surcharge: { on: true }, // most tests quote with the additional surcharge switched on
+  ...over,
 });
 const line = (q, label) => q.lines.find(([l]) => l.startsWith(label))?.[1];
 const where = (list) => list.map(([w]) => w);
@@ -32,7 +34,7 @@ describe("complete quotes", () => {
     assert.equal(q.complete, true);
     assert.deepEqual(q.lines, [
       ["Linehaul (minimum charge)", "$500.00"],
-      ["Temporary surcharge 10%", "$50.00"],
+      ["Additional surcharge 10%", "$50.00"],
       ["Fuel (20 mi × $1.03)", "$20.60"],
       ["Total", "$570.60", "total"],
     ]);
@@ -45,7 +47,7 @@ describe("complete quotes", () => {
     const q = computeQuote(base({ destText: "Itasca, IL", miles: 934 }));
     assert.equal(q.complete, true);
     assert.equal(line(q, "Linehaul"), "$1,335.62");
-    assert.equal(line(q, "Temporary surcharge 20%"), "$267.12");
+    assert.equal(line(q, "Additional surcharge 20%"), "$267.12");
     assert.equal(line(q, "Fuel"), "$962.02");
     assert.equal(q.total, 2564.76);
   });
@@ -70,7 +72,7 @@ describe("complete quotes", () => {
   test("a different equipment column on the same lane", () => {
     const q = computeQuote(base({ equipment: "Single-drop" }));
     assert.equal(line(q, "Linehaul"), "$600.00");
-    assert.equal(line(q, "Temporary surcharge"), undefined, "no single-drop surcharge for this lane");
+    assert.equal(line(q, "Additional surcharge"), undefined, "no single-drop surcharge for this lane");
   });
 });
 
@@ -170,10 +172,12 @@ describe("notes", () => {
     assert.ok(q.notes.some(([w, t]) => w === "Equipment" && t.includes(DV)));
   });
 
-  test("no surcharge sheet", () => {
-    const q = computeQuote(base({ tempSurcharges: null }));
-    assert.ok(q.notes.some(([w]) => w === "Temporary surcharge"));
+  test("surcharge switched off: no line, no problem, total without it", () => {
+    const q = computeQuote(base({ surcharge: { on: false } }));
+    assert.equal(line(q, "Additional surcharge"), undefined);
+    assert.equal(q.complete, true);
     assert.equal(q.total, 520.6);
+    assert.equal(q.tempSurcharge.filePct, 0.1, "the sheet's % is still reported for the switch");
   });
 
   test("stale diesel price", () => {
@@ -247,5 +251,62 @@ describe("parsePlace and money", () => {
   test("totals are rounded to the cent", () => {
     const q = computeQuote(base({ destText: "Itasca, IL", miles: 933 }));
     assert.equal(q.total, Math.round(q.total * 100) / 100);
+  });
+});
+
+describe("additional surcharge", () => {
+  test("off by default", () => {
+    const { surcharge, ...rest } = base();
+    const q = computeQuote(rest);
+    assert.equal(q.tempSurcharge.on, false);
+    assert.equal(line(q, "Additional surcharge"), undefined);
+    assert.equal(q.total, 520.6);
+  });
+
+  test("on: the sheet's percentage for the lane, applied to the linehaul only", () => {
+    const q = computeQuote(base({ destText: "Itasca, IL", miles: 934 }));
+    assert.equal(q.tempSurcharge.pct, 0.2);
+    assert.equal(line(q, "Additional surcharge 20%"), money(1.43 * 934 * 0.2));
+  });
+
+  test("a typed percentage beats the sheet's", () => {
+    const q = computeQuote(base({ surcharge: { on: true, pct: 0.075 } }));
+    assert.equal(q.tempSurcharge.typed, true);
+    assert.equal(line(q, "Additional surcharge 7.5%"), "$37.50");
+    assert.equal(q.total, 520.6 + 37.5);
+  });
+
+  test("a typed 0% adds nothing but counts as an answer", () => {
+    const q = computeQuote(base({ surcharge: { on: true, pct: 0 } }));
+    assert.equal(line(q, "Additional surcharge"), undefined);
+    assert.equal(q.complete, true);
+  });
+
+  test("bad typed values fall back to the sheet", () => {
+    for (const pct of [NaN, -0.1, null, undefined, "abc"]) {
+      const q = computeQuote(base({ surcharge: { on: true, pct } }));
+      assert.equal(q.tempSurcharge.pct, 0.1, String(pct));
+    }
+  });
+
+  test("on, but nothing in the sheet for this lane: asks for a percentage", () => {
+    const q = computeQuote(base({ equipment: "Single-drop" }));
+    assert.equal(q.tempSurcharge.pct, null);
+    assert.ok(q.problems.some(([w, t]) => w === "Additional surcharge" && /nothing for this lane and equipment/.test(t)));
+    const typed = computeQuote(base({ equipment: "Single-drop", surcharge: { on: true, pct: 0.05 } }));
+    assert.equal(line(typed, "Additional surcharge 5%"), "$30.00");
+    assert.equal(typed.complete, true);
+  });
+
+  test("on, with no surcharge sheet at all", () => {
+    const q = computeQuote(base({ tempSurcharges: null }));
+    assert.ok(q.problems.some(([w, t]) => w === "Additional surcharge" && /no surcharge sheet loaded/.test(t)));
+    const typed = computeQuote(base({ tempSurcharges: null, surcharge: { on: true, pct: 0.1 } }));
+    assert.equal(typed.total, 570.6);
+  });
+
+  test("no lane yet: nothing to apply it to, and no extra problem", () => {
+    const q = computeQuote(base({ destText: "Miami, FL" }));
+    assert.ok(!q.problems.some(([w]) => w === "Additional surcharge"));
   });
 });

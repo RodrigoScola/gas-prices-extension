@@ -2,13 +2,13 @@ import { useState } from "react";
 import {
   Alert, AlertTitle, Avatar, Box, Button, Card, CardContent, CardHeader, Checkbox, Chip, CircularProgress, Collapse,
   Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, InputAdornment, List, ListItemButton,
-  ListItemText, Snackbar, Stack, TextField, Tooltip, Typography,
+  ListItemText, Snackbar, Stack, Switch, TextField, Tooltip, Typography,
 } from "@mui/material";
 import HistoryOutlined from "@mui/icons-material/HistoryOutlined";
 import RestartAltOutlined from "@mui/icons-material/RestartAltOutlined";
-import ReplyOutlined from "@mui/icons-material/ReplyOutlined";
+import PercentOutlined from "@mui/icons-material/PercentOutlined";
 import RefreshOutlined from "@mui/icons-material/RefreshOutlined";
-import { buildReply, quoteText } from "../../lib/reply.js";
+import { quoteText } from "../../lib/reply.js";
 import { ago } from "../../lib/history.js";
 import LocalShippingOutlined from "@mui/icons-material/LocalShippingOutlined";
 import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
@@ -101,27 +101,6 @@ async function copyText(text, notify) {
   }
 }
 
-// The reply to the customer, editable before copying.
-function ReplyDialog({ open, onClose, initial, notify }) {
-  const [text, setText] = useState(initial);
-  return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" slotProps={{ transition: { onEnter: () => setText(initial) } }}>
-      <DialogTitle sx={{ pb: 1 }}>Reply to the customer</DialogTitle>
-      <DialogContent>
-        <TextField
-          id="replyText" multiline minRows={12} value={text} onChange={(e) => setText(e.target.value)}
-          slotProps={{ htmlInput: { style: { fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12.5, lineHeight: 1.5 } } }}
-        />
-        <Typography variant="caption" color="text.secondary">Edit it here if you like, then paste it into your Gmail reply.</Typography>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-        <Button id="copyReply" variant="contained" startIcon={<ContentCopyOutlined />} onClick={() => { copyText(text, notify); onClose(); }}>Copy reply</Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
 function HistoryDialog({ open, onClose, history, onPick, onClear }) {
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
@@ -149,7 +128,7 @@ function HistoryDialog({ open, onClose, history, onPick, onClear }) {
   );
 }
 
-function QuoteCard({ quote, onReply, notify }) {
+function QuoteCard({ quote, notify }) {
   const rows = quote.lines.slice(0, -1);
   const copy = () => copyText(quoteText(quote), notify);
   return (
@@ -179,12 +158,6 @@ function QuoteCard({ quote, onReply, notify }) {
             <Typography key={`${label}-d`} component="dd" variant="body2" sx={{ m: 0, textAlign: "right", fontVariantNumeric: "tabular-nums", ...(cls ? { display: "none" } : null) }}>{value}</Typography>,
           ])}
         </Box>
-
-        {quote.complete && (
-          <Button id="openReply" fullWidth variant="contained" startIcon={<ReplyOutlined />} onClick={onReply} sx={{ mt: 1.5 }}>
-            Reply to the customer
-          </Button>
-        )}
 
         <Box id="problems" hidden={quote.complete} sx={{ mt: 1.5 }}>
           <Alert severity="warning" variant="outlined" icon={<ErrorOutline fontSize="small" />}>
@@ -287,6 +260,35 @@ function LaneCard({ lane, miles, quote, equipmentTypes, setLaneField, typeMiles 
   );
 }
 
+// Off until switched on. The % comes from the Accepted Surcharge sheet for this lane and
+// equipment; typing a % replaces it.
+function SurchargeCard({ quote, surcharge, setSurchargeOn, typeSurchargePct }) {
+  const t = quote.tempSurcharge;
+  const pctText = (x) => `${+(x * 100).toFixed(2)}%`;
+  const source = t.filePct != null ? `The surcharge sheet has ${pctText(t.filePct)} for this lane.` : "The surcharge sheet has nothing for this lane; type a percentage.";
+  return (
+    <Section
+      icon={PercentOutlined}
+      title="Additional surcharge"
+      action={<Switch id="surchargeOn" size="small" checked={surcharge.on} onChange={(e) => setSurchargeOn(e.target.checked)} slotProps={{ input: { "aria-label": "Add the additional surcharge" } }} />}
+    >
+      <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+        <TextField
+          id="surchargePct" label="Percent" type="number" value={surcharge.pctText} disabled={!surcharge.on}
+          placeholder={t.filePct != null ? String(+(t.filePct * 100).toFixed(2)) : ""}
+          onChange={(e) => typeSurchargePct(e.target.value)} sx={{ maxWidth: 120 }}
+          slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: 0, step: 0.5 }, input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+        />
+        <Typography id="surchargeNote" variant="caption" color="text.secondary">
+          {surcharge.on
+            ? (t.amount ? `Adds ${money(t.amount)} (${pctText(t.pct)} of the linehaul). ` : "") + (t.typed ? "Using the percentage you typed." : source)
+            : `Off. Switch it on to add it to the linehaul. ${t.filePct != null ? source : ""}`}
+        </Typography>
+      </Stack>
+    </Section>
+  );
+}
+
 function FuelCard({ diesel, quote, typeDiesel, refreshDiesel }) {
   const text = quote.fuel ? quote.fuel.text : diesel.error ? "" : "Getting this week's diesel price from EIA…";
   return (
@@ -361,25 +363,21 @@ function AccessorialsCard({ quote, toggleAccessorial }) {
 export default function App() {
   const s = useSidebar();
   const [toast, setToast] = useState(null);
-  const [replyOpen, setReplyOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const reply = s.quote.complete
-    ? buildReply({ details: s.email.details, quote: s.quote, lane: s.lane, miles: s.miles.value, equipmentLabel: shortEquipment(s.lane.equipment) })
-    : "";
   return (
     <Box id="sidebar" sx={{ p: 1.5 }}>
       <Header reference={s.email.details?.reference} onHistory={() => setHistoryOpen(true)} onStartOver={s.startOver} canStartOver={!!s.email.text} />
       <Stack spacing={1.25}>
-        <QuoteCard quote={s.quote} onReply={() => setReplyOpen(true)} notify={setToast} />
+        <QuoteCard quote={s.quote} notify={setToast} />
         <EmailCard email={s.email} loadSample={s.loadSample} applyEmail={s.applyEmail} />
         <LaneCard lane={s.lane} miles={s.miles} quote={s.quote} equipmentTypes={s.equipmentTypes} setLaneField={s.setLaneField} typeMiles={s.typeMiles} />
+        <SurchargeCard quote={s.quote} surcharge={s.surcharge} setSurchargeOn={s.setSurchargeOn} typeSurchargePct={s.typeSurchargePct} />
         <FuelCard diesel={s.diesel} quote={s.quote} typeDiesel={s.typeDiesel} refreshDiesel={s.refreshDiesel} />
         <AccessorialsCard quote={s.quote} toggleAccessorial={s.toggleAccessorial} />
       </Stack>
       <Typography variant="caption" color="text.disabled" component="div" sx={{ textAlign: "center", mt: 1.5 }}>
         Tip: Alt+Shift+Q opens this sidebar from any tab.
       </Typography>
-      <ReplyDialog open={replyOpen} onClose={() => setReplyOpen(false)} initial={reply} notify={setToast} />
       <HistoryDialog open={historyOpen} onClose={() => setHistoryOpen(false)} history={s.history} onPick={s.openFromHistory} onClear={s.clearHistory} />
       <Snackbar id="toast" open={!!toast} message={toast} autoHideDuration={2000} onClose={() => setToast(null)} anchorOrigin={{ vertical: "bottom", horizontal: "center" }} />
     </Box>

@@ -1,12 +1,26 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { captureEmailText, isGmail } from "../lib/capture.js";
+import { captureEmailText, isGmail, isMailTab, mailApp } from "../lib/capture.js";
 
-test("only Gmail tabs are read automatically", () => {
-  for (const u of ["https://mail.google.com/mail/u/0/#inbox/FMfcgz", "https://mail.google.com/mail/u/1/"]) assert.equal(isGmail(u), true, u);
-  for (const u of ["https://outlook.office.com/mail/", "https://example.com/?q=https://mail.google.com/", "http://mail.google.com/", "https://mail.google.com.evil.com/", "chrome://newtab/", "", undefined]) {
-    assert.equal(isGmail(u), false, String(u));
+test("Gmail and Outlook (work and personal) tabs are read automatically, nothing else", () => {
+  const yes = {
+    "https://mail.google.com/mail/u/0/#inbox/FMfcgz": "Gmail",
+    "https://mail.google.com/mail/u/1/": "Gmail",
+    "https://outlook.office.com/mail/inbox/id/AAQk": "Outlook", // work (Microsoft 365)
+    "https://outlook.office365.com/mail/": "Outlook", // work
+    "https://outlook.cloud.microsoft/mail/": "Outlook", // work, newer address
+    "https://outlook.live.com/mail/0/inbox": "Outlook", // personal (outlook.com, hotmail)
+  };
+  for (const [u, app] of Object.entries(yes)) {
+    assert.equal(mailApp(u), app, u);
+    assert.equal(isMailTab(u), true, u);
   }
+  for (const u of ["https://example.com/?q=https://mail.google.com/", "http://mail.google.com/", "https://mail.google.com.evil.com/",
+    "https://outlook.office.com.evil.com/", "https://evil.com/outlook.live.com/", "https://www.microsoft.com/outlook/", "chrome://newtab/", "", undefined]) {
+    assert.equal(isMailTab(u), false, String(u));
+  }
+  assert.equal(isGmail("https://mail.google.com/mail/u/0/"), true);
+  assert.equal(isGmail("https://outlook.live.com/mail/0/"), false);
 });
 
 // captureEmailText runs inside the page, so give it a small fake page.
@@ -47,15 +61,27 @@ test("Gmail inbox with no message open: nothing to quote (not the inbox list)", 
   assert.deepEqual(captureEmailText(), { text: null, source: "no open email" });
 });
 
-test("Outlook web: message body, with the heading as subject", () => {
-  for (const host of ["outlook.office.com", "outlook.office365.com", "outlook.live.com"]) {
-    page({ host, all: { '[aria-label="Message body"]': [el("Outlook body")] }, one: { '[role="main"] [role="heading"]': el("Load 123") } });
-    assert.deepEqual(captureEmailText(), { text: "Subject: Load 123\n\nOutlook body", source: "Outlook message" }, host);
+test("Outlook web, work and personal: message body, with the heading as subject", () => {
+  for (const host of ["outlook.office.com", "outlook.office365.com", "outlook.cloud.microsoft", "outlook.live.com"]) {
+    page({ host, all: { '[aria-label="Message body"]': [el("Outlook body")] }, one: { '[role="main"] [role="heading"][aria-level="2"]': el("Van Load for 10/14") } });
+    assert.deepEqual(captureEmailText(), { text: "Subject: Van Load for 10/14\n\nOutlook body", source: "Outlook message" }, host);
   }
 });
 
-test("Outlook falls back to the document role", () => {
-  page({ host: "outlook.office.com", all: { '[role="document"]': [el("doc body")] } });
+test("Outlook subject: falls back through the heading selectors", () => {
+  page({ host: "outlook.live.com", all: { '[aria-label="Message body"]': [el("b")] }, one: { '#ReadingPaneContainerId [role="heading"]': el("From the reading pane") } });
+  assert.equal(captureEmailText().text, "Subject: From the reading pane\n\nb");
+  page({ host: "outlook.live.com", all: { '[aria-label="Message body"]': [el("b")] }, one: { '[role="main"] [role="heading"][aria-level="2"]': el("  "), '[role="main"] [role="heading"]': el("Any heading") } });
+  assert.equal(captureEmailText().text, "Subject: Any heading\n\nb", "an empty heading is skipped");
+});
+
+test("Outlook conversation: the first visible message is the newest", () => {
+  page({ host: "outlook.office.com", all: { '[aria-label="Message body"]': [el("collapsed", false), el("newest"), el("older")] } });
+  assert.equal(captureEmailText().text, "newest");
+});
+
+test("Outlook falls back to the document role inside the main area", () => {
+  page({ host: "outlook.office.com", all: { '[role="main"] [role="document"]': [el("doc body")] } });
   assert.equal(captureEmailText().text, "doc body");
 });
 

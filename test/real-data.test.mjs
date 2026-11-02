@@ -101,6 +101,7 @@ describe("both real emails, start to finish", { skip: skipUnless(PRIVATE.rateShe
     return computeQuote({
       rateSheet, tempSurcharges, fuelScale, details, originText: placeText(details.origin), destText: placeText(details.destination),
       equipment: details.equipment, equipmentFromEmail: true, miles, milesStatus: { fromRoute: true }, diesel: fuel.price, fuel, now: new Date(2026, 9, 23),
+      surcharge: { on: true },
     });
   };
 
@@ -108,7 +109,7 @@ describe("both real emails, start to finish", { skip: skipUnless(PRIVATE.rateShe
     const q = quoteFor(PRIVATE.email1Subject, 20);
     assert.equal(q.complete, true);
     assert.deepEqual(q.lines.map(([l, v]) => `${l} ${v}`), [
-      "Linehaul (minimum charge) $500.00", "Temporary surcharge 10% $50.00", "Fuel (20 mi × $1.03) $20.60", "Total $570.60",
+      "Linehaul (minimum charge) $500.00", "Additional surcharge 10% $50.00", "Fuel (20 mi × $1.03) $20.60", "Total $570.60",
     ]);
   });
 
@@ -116,7 +117,7 @@ describe("both real emails, start to finish", { skip: skipUnless(PRIVATE.rateShe
     const q = quoteFor(PRIVATE.email2, 934);
     assert.equal(q.complete, true);
     assert.deepEqual(q.lines.map(([l, v]) => `${l} ${v}`), [
-      "Linehaul (per mile) $1,335.62", "Temporary surcharge 20% $267.12", "Fuel (934 mi × $1.03) $962.02", "Total $2,564.76",
+      "Linehaul (per mile) $1,335.62", "Additional surcharge 20% $267.12", "Fuel (934 mi × $1.03) $962.02", "Total $2,564.76",
     ]);
   });
 

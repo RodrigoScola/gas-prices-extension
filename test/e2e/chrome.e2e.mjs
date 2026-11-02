@@ -150,6 +150,9 @@ try {
     background: getComputedStyle(document.body).backgroundColor,
     accessorialRowsShown: [...document.querySelectorAll(".acc")].filter(r => getComputedStyle(r).visibility !== "hidden" && r.closest(".MuiCollapse-root")?.getBoundingClientRect().height !== 0).length,
     accessorialToggle: !!document.getElementById("toggleAccessorials"),
+    surchargeOn: !!document.getElementById("surchargeOn")?.checked,
+    surchargeNote: document.getElementById("surchargeNote")?.textContent || "",
+    replyButton: !!document.getElementById("openReply"),
     details: [...document.querySelectorAll("#details dt")].map(dt => dt.textContent + ": " + dt.nextElementSibling.textContent).join(" | "),
     miles: document.getElementById("miles").value,
     milesNote: document.getElementById("milesNote").textContent,
@@ -204,9 +207,40 @@ try {
   check("email 1: miles from the route and a complete quote", () => {
     assert.match(s.milesNote, /^Driving miles from the street address\.$/);
     assert.equal(s.lane, "Lane matched city to city: minimum $500.00.");
-    assert.match(s.quote, /^Linehaul \(minimum charge\): \$500\.00 \| Temporary surcharge 10%: \$50\.00 \| Fuel \(\d+ mi × \$\d\.\d\d\): \$[\d.,]+ \| Total: \$[\d.,]+$/);
+    assert.match(s.quote, /^Linehaul \(minimum charge\): \$500\.00 \| Fuel \(\d+ mi × \$\d\.\d\d\): \$[\d.,]+ \| Total: \$[\d.,]+$/);
     assert.deepEqual(s.problems, []);
   });
+  check("additional surcharge is off until switched on, and shows the sheet's %", () => {
+    assert.equal(s.surchargeOn, false);
+    assert.match(s.surchargeNote, /^Off\. .*The surcharge sheet has 10% for this lane\./);
+    assert.equal(s.replyButton, false, "the reply-to-customer button is gone");
+  });
+
+  await P(`document.getElementById("surchargeOn").click()`);
+  await sleep(400);
+  s = await dump();
+  check("switching the surcharge on adds the sheet's 10% to the linehaul", () => {
+    assert.equal(s.surchargeOn, true);
+    assert.match(s.quote, /^Linehaul \(minimum charge\): \$500\.00 \| Additional surcharge 10%: \$50\.00 \| Fuel/);
+    assert.match(s.surchargeNote, /^Adds \$50\.00 \(10% of the linehaul\)\./);
+  });
+  await P(`(() => {
+    const el = document.getElementById("surchargePct");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, "7.5");
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  })()`);
+  await sleep(400);
+  s = await dump();
+  check("a typed percentage replaces the sheet's", () => {
+    assert.match(s.quote, /Additional surcharge 7\.5%: \$37\.50/);
+    assert.match(s.surchargeNote, /Using the percentage you typed\./);
+  });
+  await P(`(() => {
+    const el = document.getElementById("surchargePct");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, "");
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  })()`);
+  await sleep(300);
   check("nothing detected: all 15 accessorials are listed, no Show all button", () => {
     assert.equal(s.accessorialRowsShown, 15);
     assert.equal(s.accessorialToggle, false);
@@ -214,11 +248,12 @@ try {
   await shot(panel.sessionId, "email-1.png");
 
   // Click another email the way Gmail does: swap the DOM and change the hash.
-  await evalIn(g, `
+  await evalIn(g, `{
     const doc = new DOMParser().parseFromString(${JSON.stringify(gmailPage("two"))}, "text/html");
     document.querySelector("h2.hP").replaceWith(doc.querySelector("h2.hP"));
     document.querySelector("div.a3s").replaceWith(doc.querySelector("div.a3s"));
-    location.hash = "#inbox/two";`);
+    location.hash = "#inbox/two";
+  }`);
   await waitFor(async () => { const x = await dump(); return /Itasca/.test(x.details) && /Driving/.test(x.milesNote); }, "email 2 miles");
   s = await dump();
   check("clicking another email in Gmail re-reads it", () => {
@@ -227,26 +262,16 @@ try {
   });
   check("email 2: per-mile lane with the 20% surcharge", () => {
     assert.equal(s.lane, "Lane matched city to city: $1.43/mile.");
-    assert.match(s.quote, /^Linehaul \(per mile\): \$[\d,.]+ \| Temporary surcharge 20%: \$[\d,.]+ \| Fuel \(\d+ mi/);
+    assert.match(s.quote, /^Linehaul \(per mile\): \$[\d,.]+ \| Fuel \(\d+ mi/);
     assert.ok(Number(s.miles) > 850 && Number(s.miles) < 1050, `miles ${s.miles}`);
     assert.deepEqual(s.problems, []);
+    assert.equal(s.surchargeOn, false, "a new email starts with the surcharge off");
   });
+  await P(`document.getElementById("surchargeOn").click()`);
+  await sleep(400);
+  s = await dump();
+  check("email 2 with the surcharge on: the sheet's 20%", () => assert.match(s.quote, /^Linehaul \(per mile\): \$[\d,.]+ \| Additional surcharge 20%: \$[\d,.]+ \| Fuel \(\d+ mi/));
   await shot(panel.sessionId, "email-2.png");
-
-  // Reply to the customer.
-  await P(`document.getElementById("openReply").click()`);
-  await sleep(600);
-  const replyText = await P(`document.getElementById("replyText")?.value || ""`);
-  check("reply to the customer: greeting, reference, lane and all-in total", () => {
-    assert.match(replyText, /^Hi Albert,/);
-    assert.match(replyText, /Here's our rate for 3010759748-41K\/42K\/43K\/44K:/);
-    assert.match(replyText, /Grand Prairie, TX → Itasca, IL/);
-    assert.match(replyText, /Dry van · \d{3,4} miles · 7,200 lbs · 4 pcs/);
-    assert.match(replyText, /All-in total\s+\$[\d,]+\.\d\d/);
-  });
-  await shot(panel.sessionId, "reply.png");
-  await P(`[...document.querySelectorAll(".MuiDialog-root button")].find(b => b.textContent === "Close").click()`);
-  await sleep(500);
 
   // Switch to a non-Gmail tab that has shipping-looking text: nothing is read, the quote stays.
   const { targetId: xTarget } = await send("Target.createTarget", { url: "about:blank" });
@@ -266,10 +291,10 @@ try {
   await send("Target.activateTarget", { targetId: xTarget });
   await sleep(3000);
   s = await dump();
-  check("a non-Gmail tab isn't read, and the quote stays", () => {
+  check("a tab that isn't Gmail or Outlook isn't read, and the quote stays", () => {
     assert.match(s.details, /Delivery: Itasca, IL 60143/);
     assert.doesNotMatch(s.details, /Atlanta/);
-    assert.match(s.quote, /Temporary surcharge 20%/);
+    assert.match(s.quote, /Additional surcharge 20%/);
   });
 
   // Close and reopen the sidebar (a reload): the last quote comes back, edits included.
@@ -286,6 +311,7 @@ try {
     assert.match(s.details, /Reference: 3010759748-41K\/42K\/43K\/44K/);
     assert.equal(s.miles, "950");
     assert.match(s.quote, /Fuel \(950 mi/);
+    assert.equal(s.surchargeOn, true, "the surcharge switch comes back too");
   });
 
   // Back to Gmail on the same email: nothing changes (the typed miles are kept).
@@ -295,11 +321,12 @@ try {
   check("back on the same Gmail email: edits are kept", () => assert.equal(s.miles, "950"));
 
   // A third Gmail email with accessorials in it.
-  await evalIn(g, `
+  await evalIn(g, `{
     const doc = new DOMParser().parseFromString(${JSON.stringify(gmailPage("three"))}, "text/html");
     document.querySelector("h2.hP").replaceWith(doc.querySelector("h2.hP"));
     document.querySelector("div.a3s").replaceWith(doc.querySelector("div.a3s"));
-    location.hash = "#inbox/three";`);
+    location.hash = "#inbox/three";
+  }`);
   await waitFor(async () => { const x = await dump(); return /Laredo/.test(x.details) && /Driving/.test(x.milesNote); }, "email 3 miles");
   s = await dump();
   check("accessorials detected from the email", () => {
@@ -350,9 +377,52 @@ try {
   await send("Target.activateTarget", { targetId: gTarget });
   await sleep(1500);
   await P(`document.getElementById("startOver").click()`);
-  await waitFor(async () => /Itasca/.test((await dump()).details), "start over to re-read Gmail");
+  // (The Gmail tab is on the third email, the Laredo flatbed, by now.)
+  await waitFor(async () => /Laredo/.test((await dump()).details), "start over to re-read Gmail");
   s = await dump();
-  check("start over re-reads the open Gmail email", () => assert.match(s.details, /Delivery: Itasca, IL 60143/));
+  check("start over re-reads the open Gmail email", () => {
+    assert.match(s.details, /Pickup: Laredo, TX 78040/);
+    assert.equal(s.surchargeOn, false, "and the surcharge switch starts off again");
+  });
+
+  // Outlook on the web: a work account (outlook.office.com) and a personal one (outlook.live.com).
+  const outlookPage = (which) => `<!doctype html><title>Mail - Outlook</title><div role="navigation">Inbox 12</div>
+<div role="main"><div role="heading" aria-level="2">${esc(subjects[which])}</div>
+<div aria-label="Message body">${esc(emails[which].replace(/^Subject:.*\n/, "")).split("\n").map((l) => `<div>${l || "<br>"}</div>`).join("")}</div></div>`;
+  const { targetId: oTarget } = await send("Target.createTarget", { url: "about:blank" });
+  const { sessionId: ol } = await send("Target.attachToTarget", { targetId: oTarget, flatten: true });
+  await send("Fetch.enable", { patterns: [{ urlPattern: "https://outlook.office.com/*" }, { urlPattern: "https://outlook.live.com/*" }] }, ol);
+  listeners.push(async (msg) => {
+    if (msg.method !== "Fetch.requestPaused" || msg.sessionId !== ol) return;
+    const which = msg.params.request.url.includes("live.com") ? "two" : "one";
+    await send("Fetch.fulfillRequest", {
+      requestId: msg.params.requestId, responseCode: 200,
+      responseHeaders: [{ name: "Content-Type", value: "text/html; charset=utf-8" }],
+      body: Buffer.from(outlookPage(which)).toString("base64"),
+    }, ol);
+  });
+  await send("Page.enable", {}, ol);
+  await send("Page.navigate", { url: "https://outlook.office.com/mail/inbox/id/AAQk1" }, ol);
+  await sleep(1500);
+  await send("Target.activateTarget", { targetId: oTarget });
+  await waitFor(async () => /Outlook/.test((await dump()).capture) && /3011526620/.test((await dump()).details), "the Outlook work email");
+  s = await dump();
+  check("Outlook (work account): reads the open email by itself, subject included", () => {
+    assert.equal(s.capture, "Read from: Outlook message.");
+    assert.match(s.details, /Reference: 3011526620-23K/);
+    assert.match(s.details, /Delivery: Fort Worth, TX 76111/);
+    assert.match(s.details, /Equipment: Dry van\/tractor trailer/);
+    assert.match(s.details, /Pickup date: 10\/14\/2026/);
+  });
+  await shot(panel.sessionId, "outlook-work.png");
+  await send("Page.navigate", { url: "https://outlook.live.com/mail/0/inbox/id/AAQk2" }, ol);
+  await waitFor(async () => /Itasca/.test((await dump()).details), "the Outlook personal email");
+  s = await dump();
+  check("Outlook (personal account, outlook.live.com): reads the open email too", () => {
+    assert.equal(s.capture, "Read from: Outlook message.");
+    assert.match(s.details, /Reference: 3010759748-41K\/42K\/43K\/44K/);
+    assert.match(s.details, /Delivery: Itasca, IL 60143/);
+  });
 
   // A wide sidebar: the cards stretch to its full width instead of centering.
   await send("Emulation.setDeviceMetricsOverride", { width: 1100, height: 900, deviceScaleFactor: 1, mobile: false }, panel.sessionId);

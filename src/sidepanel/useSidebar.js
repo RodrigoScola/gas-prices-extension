@@ -2,7 +2,7 @@
 // looks up miles and diesel, and computes the quote. The page components only render it.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parseEmail } from "../../lib/email.js";
-import { captureEmailText, isGmail } from "../../lib/capture.js";
+import { captureEmailText, isMailTab } from "../../lib/capture.js";
 import { loadSheets } from "../../lib/sheets.js";
 import { matchEquipment } from "../../lib/rates.js";
 import { fetchDieselPricePublic, isStale } from "../../lib/fuel.js";
@@ -28,6 +28,8 @@ export function useSidebar() {
   const [miles, setMiles] = useState({ value: "", source: null, precision: null, busy: false, error: null });
   const [diesel, setDiesel] = useState({ value: "", fuel: null, error: null, busy: false });
   const [overrides, setOverrides] = useState(new Map());
+  // Additional surcharge: off until the broker switches it on; pctText is a typed % ("" = use the sheet's).
+  const [surcharge, setSurcharge] = useState({ on: false, pctText: "" });
   const [history, setHistory] = useState([]);
   const milesCache = useRef({});
   const emailText = useRef(null);
@@ -51,6 +53,7 @@ export function useSidebar() {
     });
     setMiles(details.miles ? { value: String(details.miles), source: "email", busy: false, error: null } : { value: "", source: null, busy: false, error: null });
     setOverrides(new Map());
+    setSurcharge({ on: false, pctText: "" });
   }, []);
 
   const readRun = useRef(0);
@@ -60,16 +63,16 @@ export function useSidebar() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id) return;
-      if (!isGmail(tab.url)) return noEmail("Open a shipping email in Gmail to quote it.");
+      if (!isMailTab(tab.url)) return noEmail("Open a shipping email in Gmail or Outlook to quote it.");
       const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: captureEmailText });
       if (run !== readRun.current) return;
       if (result?.text) return applyEmail(result.text, result.source);
-      // Gmail fills the message in after the URL changes, so retry an empty read a few times.
+      // Gmail and Outlook fill the message in after the URL changes, so retry an empty read a few times.
       if (result?.source === "no open email" && attempt < 6) return setTimeout(() => readActiveTab(attempt + 1), 700);
-      noEmail("Open a shipping email in Gmail to quote it.");
+      noEmail("Open a shipping email in Gmail or Outlook to quote it.");
     } catch {
       // Pages Chrome won't let extensions read (new tab, chrome://, the Web Store).
-      if (run === readRun.current) noEmail("Open a shipping email in Gmail to quote it.");
+      if (run === readRun.current) noEmail("Open a shipping email in Gmail or Outlook to quote it.");
     }
   }, [applyEmail]);
 
@@ -81,6 +84,7 @@ export function useSidebar() {
     setLane(q.lane);
     setMiles({ ...q.miles, busy: false, error: null });
     setOverrides(new Map(q.overrides));
+    setSurcharge(q.surcharge || { on: false, pctText: "" });
   }, []);
 
   const restoreLastQuote = useCallback(async () => {
@@ -88,13 +92,14 @@ export function useSidebar() {
     if (q?.text) applySnapshot(q);
   }, [applySnapshot]);
 
-  // Start over: forget the current quote. The open Gmail email is read again from scratch.
+  // Start over: forget the current quote. The open email is read again from scratch.
   const startOver = useCallback(async () => {
     emailText.current = null;
     setEmail({ text: null, source: null, details: null, note: null });
     setLane((l) => ({ origin: "", destination: "", equipment: l.equipment, equipmentFromEmail: false }));
     setMiles({ value: "", source: null, precision: null, busy: false, error: null });
     setOverrides(new Map());
+    setSurcharge({ on: false, pctText: "" });
     await chrome.storage.session.remove("lastQuote");
     readActiveTab();
   }, [readActiveTab]);
@@ -221,6 +226,9 @@ export function useSidebar() {
 
   const typeMiles = useCallback((value) => setMiles({ value, source: value ? "typed" : null, busy: false, error: null }), []);
 
+  const setSurchargeOn = useCallback((on) => setSurcharge((x) => ({ ...x, on })), []);
+  const typeSurchargePct = useCallback((pctText) => setSurcharge((x) => ({ ...x, pctText })), []);
+
   const toggleAccessorial = useCallback((id, checked) => setOverrides((o) => new Map(o).set(id, checked)), []);
 
   const loadSample = useCallback(async () => {
@@ -236,9 +244,10 @@ export function useSidebar() {
         lane,
         miles: { value: miles.value, source: miles.source, precision: miles.precision ?? null },
         overrides: [...overrides],
+        surcharge,
       },
     });
-  }, [email.text, email.source, lane, miles.value, miles.source, miles.precision, overrides]);
+  }, [email.text, email.source, lane, miles.value, miles.source, miles.precision, overrides, surcharge]);
 
   // ---------- quote ----------
 
@@ -257,7 +266,8 @@ export function useSidebar() {
     fuel: diesel.fuel,
     fuelError: diesel.error,
     overrides,
-  }), [sheets, email.details, lane, miles, diesel, overrides]);
+    surcharge: { on: surcharge.on, pct: surcharge.pctText.trim() === "" ? null : Number(surcharge.pctText) / 100 },
+  }), [sheets, email.details, lane, miles, diesel, overrides, surcharge]);
 
   // Every complete quote goes into the history (one entry per email, updated as it changes).
   useEffect(() => {
@@ -273,7 +283,7 @@ export function useSidebar() {
         equipment: lane.equipment,
         total: quote.total,
         at: new Date().toISOString(),
-        snapshot: { text: email.text, source: email.source, lane, miles: { value: miles.value, source: miles.source, precision: miles.precision ?? null }, overrides: [...overrides] },
+        snapshot: { text: email.text, source: email.source, lane, miles: { value: miles.value, source: miles.source, precision: miles.precision ?? null }, overrides: [...overrides], surcharge },
       };
       const { history: list } = await store.get("history");
       const next = addToHistory(list, entry);
@@ -287,7 +297,7 @@ export function useSidebar() {
       clearTimeout(timer);
       if (!saved && emailText.current !== text) save();
     };
-  }, [quote.complete, quote.total, email.text, email.source, email.details, lane, miles.value, miles.source, miles.precision, overrides]);
+  }, [quote.complete, quote.total, email.text, email.source, email.details, lane, miles.value, miles.source, miles.precision, overrides, surcharge]);
 
   const openFromHistory = useCallback((entry) => applySnapshot(entry.snapshot), [applySnapshot]);
   const clearHistory = useCallback(async () => {
@@ -296,9 +306,9 @@ export function useSidebar() {
   }, []);
 
   return {
-    sheets, email, lane, miles, diesel, quote, history,
+    sheets, email, lane, miles, diesel, quote, history, surcharge,
     setLaneField, typeMiles, typeDiesel, toggleAccessorial, loadSample, applyEmail,
-    startOver, refreshDiesel, openFromHistory, clearHistory,
+    startOver, refreshDiesel, openFromHistory, clearHistory, setSurchargeOn, typeSurchargePct,
     equipmentTypes: sheets.rateSheet?.equipmentTypes || [],
   };
 }
